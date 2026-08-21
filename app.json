@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Crypto Hornet",
+    "slug": "BinanceFinanceTracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "cryptohornet",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0E11",
+    "android": {
+      "package": "com.cryptohornet.tracker",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0E11",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B0E11",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 120
+        }
+      ],
+      "expo-sqlite",
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#F0B90B"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
