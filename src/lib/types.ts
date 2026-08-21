@@ -6,6 +6,7 @@ export interface Entry {
   pointsPlus: number;
   pointsMinus: number;
   dropIncome: number;
+  boosterIncome: number;
   gasExpense: number;
   comment: string;
 }
@@ -46,6 +47,8 @@ export interface Post {
   title: string;
   content: string;
   status: PostStatus;
+  /** локальні URI прикріплених картинок */
+  images: string[];
   createdAt: string;
   updatedAt: string;
 }

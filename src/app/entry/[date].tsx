@@ -16,9 +16,10 @@ import { useData } from '../../lib/data-context';
 import { addDays, dateHumanWD, todayISO } from '../../lib/format';
 import { colors, spacing } from '../../lib/theme';
 
-function parseNum(s: string): number {
+function parseNum(s: string, allowNegative = false): number {
   const n = Number(s.replace(',', '.').replace(/\s/g, ''));
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  if (!Number.isFinite(n)) return 0;
+  return allowNegative || n >= 0 ? n : 0;
 }
 
 function numToStr(n: number): string {
@@ -37,6 +38,7 @@ export default function EntryForm() {
   const [pointsPlus, setPointsPlus] = useState('');
   const [pointsMinus, setPointsMinus] = useState('');
   const [dropIncome, setDropIncome] = useState('');
+  const [boosterIncome, setBoosterIncome] = useState('');
   const [gasExpense, setGasExpense] = useState('');
   const [comment, setComment] = useState('');
 
@@ -47,23 +49,49 @@ export default function EntryForm() {
     setPointsPlus(existing ? numToStr(existing.pointsPlus) : String(settings.defaultPoints));
     setPointsMinus(existing ? numToStr(existing.pointsMinus) : '');
     setDropIncome(existing ? numToStr(existing.dropIncome) : '');
+    setBoosterIncome(existing ? numToStr(existing.boosterIncome) : '');
     setGasExpense(existing ? numToStr(existing.gasExpense) : '');
     setComment(existing ? existing.comment : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
   const save = () => {
-    saveEntry({
+    const entry = {
       date,
       volume: parseNum(volume),
       fee: parseNum(fee),
-      pointsPlus: Math.round(parseNum(pointsPlus)),
-      pointsMinus: Math.round(parseNum(pointsMinus)),
+      pointsPlus: Math.round(parseNum(pointsPlus, true)),
+      pointsMinus: Math.round(parseNum(pointsMinus, true)),
       dropIncome: parseNum(dropIncome),
+      boosterIncome: parseNum(boosterIncome),
       gasExpense: parseNum(gasExpense),
       comment: comment.trim(),
-    });
-    router.back();
+    };
+    const doSave = () => {
+      saveEntry(entry);
+      router.back();
+    };
+    // захист від випадкового «порожнього» дня, який непомітно додасть бали
+    const noData =
+      entry.volume === 0 &&
+      entry.fee === 0 &&
+      entry.dropIncome === 0 &&
+      entry.boosterIncome === 0 &&
+      entry.gasExpense === 0 &&
+      entry.pointsMinus === 0 &&
+      entry.comment === '';
+    if (noData && !existing) {
+      Alert.alert(
+        'Порожній запис',
+        `У записі немає жодних даних, але він додасть +${entry.pointsPlus} балів. Зберегти все одно?`,
+        [
+          { text: 'Скасувати', style: 'cancel' },
+          { text: 'Зберегти', onPress: doSave },
+        ]
+      );
+      return;
+    }
+    doSave();
   };
 
   const confirmDelete = () => {
@@ -147,14 +175,21 @@ export default function EntryForm() {
           </View>
           <View style={{ flex: 1 }}>
             <Field
-              label="Витрати (газ/фі), $"
-              value={gasExpense}
-              onChangeText={setGasExpense}
+              label="Дохід з бустерів, $"
+              value={boosterIncome}
+              onChangeText={setBoosterIncome}
               keyboardType="decimal-pad"
               placeholder="0"
             />
           </View>
         </View>
+        <Field
+          label="Витрати (газ/фі), $"
+          value={gasExpense}
+          onChangeText={setGasExpense}
+          keyboardType="decimal-pad"
+          placeholder="0"
+        />
         <Field
           label="Коментар"
           value={comment}

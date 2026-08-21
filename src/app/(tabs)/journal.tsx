@@ -1,12 +1,12 @@
 import { router } from 'expo-router';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { Screen } from '../../components/screen';
 import { Chip } from '../../components/ui';
-import { isActive, sortByDate } from '../../lib/calc';
+import { isActive, periodSummary, sortByDate } from '../../lib/calc';
 import { useData } from '../../lib/data-context';
-import { addDays, dateHumanWD, money, num, todayISO } from '../../lib/format';
+import { addDays, dateHumanWD, money, moneySigned, num } from '../../lib/format';
 import { colors, radius, spacing } from '../../lib/theme';
 import type { Entry } from '../../lib/types';
 
@@ -18,8 +18,9 @@ interface DayItem {
 }
 
 export default function Journal() {
-  const { entries, stats } = useData();
-  const today = todayISO();
+  const { entries, stats, today } = useData();
+  const [showSummary, setShowSummary] = useState(false);
+  const summary = useMemo(() => periodSummary(entries, 15, today), [entries, today]);
 
   const items = useMemo<DayItem[]>(() => {
     if (entries.length === 0) return [{ date: today, entry: null, balanceAfter: null, pointsAfter: null }];
@@ -58,9 +59,62 @@ export default function Journal() {
         keyExtractor={(it) => it.date}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 40 }}
+        ListHeaderComponent={
+          <View style={styles.summaryWrap}>
+            <TouchableOpacity
+              style={styles.summaryToggle}
+              onPress={() => setShowSummary((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.summaryToggleText}>
+                {showSummary ? '▾ Підсумок за 15 днів' : '▸ Підсумок за 15 днів'}
+              </Text>
+            </TouchableOpacity>
+            {showSummary ? (
+              <View style={styles.summaryCard}>
+                <SummaryRow label="Активних днів" value={`${summary.activeDays} з ${summary.days}`} />
+                <SummaryRow label="Обсяг торгівлі" value={money(summary.volume, 0)} />
+                <SummaryRow label="Комісії" value={money(summary.fees)} tone={colors.red} />
+                <SummaryRow label="Газ / фі" value={money(summary.gas)} tone={colors.red} />
+                <SummaryRow label="Дохід з дропів" value={money(summary.drop)} tone={colors.gold} />
+                <SummaryRow label="Дохід з бустерів" value={money(summary.booster)} tone={colors.gold} />
+                <SummaryRow
+                  label="Бали"
+                  value={`+${num(summary.pointsEarned)} / −${num(summary.pointsSpent)}`}
+                  tone={colors.blue}
+                />
+                <SummaryRow
+                  label="P&L за період"
+                  value={moneySigned(summary.pnl)}
+                  tone={summary.pnl >= 0 ? colors.green : colors.red}
+                  bold
+                />
+              </View>
+            ) : null}
+          </View>
+        }
         renderItem={({ item }) => <DayRow item={item} isToday={item.date === today} />}
       />
     </Screen>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  tone = colors.text,
+  bold,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  bold?: boolean;
+}) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={[styles.summaryValue, { color: tone }, bold && { fontSize: 15 }]}>{value}</Text>
+    </View>
   );
 }
 
@@ -97,11 +151,14 @@ function DayRow({ item, isToday }: { item: DayItem; isToday: boolean }) {
             <NumCol label="Комісія" value={money(e.fee)} color={colors.red} />
             <NumCol
               label="Бали"
-              value={`+${e.pointsPlus}${e.pointsMinus ? ` / −${e.pointsMinus}` : ''}`}
+              value={`+${e.pointsPlus}${e.pointsMinus > 0 ? ` / −${e.pointsMinus}` : ''}`}
               color={colors.blue}
             />
             {e.dropIncome > 0 ? (
               <NumCol label="Дроп" value={`+${money(e.dropIncome)}`} color={colors.gold} />
+            ) : null}
+            {e.boosterIncome > 0 ? (
+              <NumCol label="Бустер" value={`+${money(e.boosterIncome)}`} color={colors.gold} />
             ) : null}
             {e.gasExpense > 0 ? (
               <NumCol label="Газ" value={money(e.gasExpense)} color={colors.red} />
@@ -176,4 +233,29 @@ const styles = StyleSheet.create({
   afterValue: { color: colors.text, fontWeight: '700' },
   comment: { color: colors.sub, fontSize: 12, marginTop: 6, fontStyle: 'italic' },
   missedText: { color: colors.faint, fontSize: 13 },
+  summaryWrap: { marginBottom: spacing.s },
+  summaryToggle: {
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.m,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.l,
+  },
+  summaryToggleText: { color: colors.gold, fontWeight: '700', fontSize: 14 },
+  summaryCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.goldDim,
+    borderRadius: radius.l,
+    padding: spacing.l,
+    marginTop: spacing.s,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 5,
+  },
+  summaryLabel: { color: colors.sub, fontSize: 13 },
+  summaryValue: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });

@@ -19,6 +19,7 @@ export function initDb(): void {
       points_plus INTEGER NOT NULL DEFAULT 0,
       points_minus INTEGER NOT NULL DEFAULT 0,
       drop_income REAL NOT NULL DEFAULT 0,
+      booster_income REAL NOT NULL DEFAULT 0,
       gas_expense REAL NOT NULL DEFAULT 0,
       comment TEXT NOT NULL DEFAULT ''
     );
@@ -39,11 +40,26 @@ export function initDb(): void {
       title TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'draft',
+      images TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
+  migrate();
   seedIfNeeded();
+}
+
+// Додає колонки, яких немає в базі, що лишилась від старішої версії застосунку.
+function migrate(): void {
+  const addColumn = (sql: string) => {
+    try {
+      db.execSync(sql);
+    } catch {
+      // колонка вже існує
+    }
+  };
+  addColumn('ALTER TABLE entries ADD COLUMN booster_income REAL NOT NULL DEFAULT 0');
+  addColumn("ALTER TABLE posts ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
 }
 
 function seedIfNeeded(): void {
@@ -108,6 +124,7 @@ interface EntryRow {
   points_plus: number;
   points_minus: number;
   drop_income: number;
+  booster_income: number;
   gas_expense: number;
   comment: string;
 }
@@ -120,6 +137,7 @@ function rowToEntry(r: EntryRow): Entry {
     pointsPlus: r.points_plus,
     pointsMinus: r.points_minus,
     dropIncome: r.drop_income,
+    boosterIncome: r.booster_income,
     gasExpense: r.gas_expense,
     comment: r.comment,
   };
@@ -132,18 +150,35 @@ export function loadEntries(): Entry[] {
 
 export function upsertEntry(e: Entry): void {
   db.runSync(
-    `INSERT INTO entries (date, volume, fee, points_plus, points_minus, drop_income, gas_expense, comment)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO entries (date, volume, fee, points_plus, points_minus, drop_income, booster_income, gas_expense, comment)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(date) DO UPDATE SET
        volume = excluded.volume,
        fee = excluded.fee,
        points_plus = excluded.points_plus,
        points_minus = excluded.points_minus,
        drop_income = excluded.drop_income,
+       booster_income = excluded.booster_income,
        gas_expense = excluded.gas_expense,
        comment = excluded.comment`,
-    [e.date, e.volume, e.fee, e.pointsPlus, e.pointsMinus, e.dropIncome, e.gasExpense, e.comment]
+    [
+      e.date,
+      e.volume,
+      e.fee,
+      e.pointsPlus,
+      e.pointsMinus,
+      e.dropIncome,
+      e.boosterIncome,
+      e.gasExpense,
+      e.comment,
+    ]
   );
+}
+
+export function upsertEntries(entries: Entry[]): void {
+  db.withTransactionSync(() => {
+    for (const e of entries) upsertEntry(e);
+  });
 }
 
 export function deleteEntry(date: string): void {
@@ -246,16 +281,25 @@ interface PostRow {
   title: string;
   content: string;
   status: string;
+  images: string;
   created_at: string;
   updated_at: string;
 }
 
 function rowToPost(r: PostRow): Post {
+  let images: string[] = [];
+  try {
+    const parsed = JSON.parse(r.images);
+    if (Array.isArray(parsed)) images = parsed.filter((x) => typeof x === 'string');
+  } catch {
+    // зіпсований запис — без картинок
+  }
   return {
     id: r.id,
     title: r.title,
     content: r.content,
     status: r.status === 'published' ? 'published' : 'draft',
+    images,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -268,20 +312,17 @@ export function loadPosts(): Post[] {
 
 export function insertPost(p: Omit<Post, 'id'>): Post {
   const res = db.runSync(
-    'INSERT INTO posts (title, content, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-    [p.title, p.content, p.status, p.createdAt, p.updatedAt]
+    'INSERT INTO posts (title, content, status, images, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [p.title, p.content, p.status, JSON.stringify(p.images), p.createdAt, p.updatedAt]
   );
   return { ...p, id: Number(res.lastInsertRowId) };
 }
 
 export function updatePost(p: Post): void {
-  db.runSync('UPDATE posts SET title = ?, content = ?, status = ?, updated_at = ? WHERE id = ?', [
-    p.title,
-    p.content,
-    p.status,
-    p.updatedAt,
-    p.id,
-  ]);
+  db.runSync(
+    'UPDATE posts SET title = ?, content = ?, status = ?, images = ?, updated_at = ? WHERE id = ?',
+    [p.title, p.content, p.status, JSON.stringify(p.images), p.updatedAt, p.id]
+  );
 }
 
 export function deletePost(id: number): void {

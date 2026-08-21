@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { isActive } from '../lib/calc';
@@ -56,9 +56,16 @@ export function Heatmap({ entries }: { entries: Entry[] }) {
         week.push({ date: cursor, state });
         cursor = addDays(cursor, 1);
       }
-      const m = parseDate(week[0].date).getMonth();
+      const d0 = parseDate(week[0].date);
+      const m = d0.getMonth();
       if (m !== lastMonth) {
-        monthLabels.push({ index: weeks.length, label: MONTHS_UK_SHORT[m] });
+        // на початку року (та на першій колонці) додаємо рік, щоб при
+        // прокручуванні кількох років було видно, де який
+        const withYear = m === 0 || weeks.length === 0;
+        monthLabels.push({
+          index: weeks.length,
+          label: withYear ? `${MONTHS_UK_SHORT[m]} ’${String(d0.getFullYear()).slice(2)}` : MONTHS_UK_SHORT[m],
+        });
         lastMonth = m;
       }
       weeks.push(week);
@@ -66,12 +73,16 @@ export function Heatmap({ entries }: { entries: Entry[] }) {
     return { weeks, monthLabels };
   }, [entries]);
 
+  const scrollRef = useRef<ScrollView>(null);
+
   return (
     <View>
       <ScrollView
+        ref={scrollRef}
         horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingVertical: 4 }}
+        showsHorizontalScrollIndicator
+        contentContainerStyle={{ paddingVertical: 4, paddingBottom: 10 }}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
       >
         <View>
           <View style={{ flexDirection: 'row', height: 16 }}>
@@ -79,7 +90,11 @@ export function Heatmap({ entries }: { entries: Entry[] }) {
               const label = monthLabels.find((ml) => ml.index === i);
               return (
                 <View key={i} style={{ width: CELL + GAP }}>
-                  {label ? <Text style={styles.monthLabel}>{label.label}</Text> : null}
+                  {label ? (
+                    <Text numberOfLines={1} style={[styles.monthLabel, { width: 52 }]}>
+                      {label.label}
+                    </Text>
+                  ) : null}
                 </View>
               );
             })}

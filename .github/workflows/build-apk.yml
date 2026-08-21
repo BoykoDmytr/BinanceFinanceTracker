@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
 
+# один спільний реліз apk-latest — нові пуші скасовують збірку, що ще триває
+concurrency:
+  group: build-apk-release
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -47,23 +52,28 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Rename APK
-        run: cp android/app/build/outputs/apk/release/app-release.apk crypto-hornet.apk
+        run: cp android/app/build/outputs/apk/release/app-release.apk cryptofinance-tracker.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-hornet-apk
-          path: crypto-hornet.apk
+          name: cryptofinance-tracker-apk
+          path: cryptofinance-tracker.apk
+
+      - name: Remove old-named asset from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete-asset apk-latest crypto-hornet.apk -y --repo "$GITHUB_REPOSITORY" || true
 
       - name: Publish APK to "apk-latest" release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest
-          name: Crypto Hornet — останній APK
+          name: CryptoFinance Tracker — останній APK
           body: |
-            Найсвіжіша збірка застосунку Crypto Hornet.
+            Найсвіжіша збірка застосунку CryptoFinance Tracker.
 
-            **Як встановити:** скачай `crypto-hornet.apk` на телефон, відкрий файл
+            **Як встановити:** скачай `cryptofinance-tracker.apk` на телефон, відкрий файл
             і дозволь встановлення з невідомих джерел, коли Android запитає.
-          files: crypto-hornet.apk
+          files: cryptofinance-tracker.apk
           prerelease: false

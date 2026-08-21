@@ -7,9 +7,12 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { AppState } from 'react-native';
 
 import { computeStats, type Stats } from './calc';
 import * as store from './db';
+import { todayISO } from './format';
+import { deleteImages } from './images';
 import {
   cancelReminderNotifs,
   planSpinReminders,
@@ -25,16 +28,19 @@ interface DataContextValue {
   posts: Post[];
   stats: Stats;
   notifGranted: boolean;
+  /** Поточна дата YYYY-MM-DD; оновлюється, коли застосунок виходить на передній план */
+  today: string;
 
   saveEntry: (e: Entry) => void;
   removeEntry: (date: string) => void;
+  importEntries: (list: Entry[]) => void;
   updateSettings: (s: Settings) => void;
 
   addReminder: (r: Omit<Reminder, 'id' | 'notifIds'>) => Promise<void>;
   editReminder: (r: Reminder) => Promise<void>;
   removeReminder: (id: number) => Promise<void>;
 
-  addPost: (title: string, content: string) => Post;
+  addPost: (title: string, content: string, images?: string[]) => Post;
   editPost: (p: Post) => void;
   removePost: (id: number) => Promise<void>;
 }
@@ -53,7 +59,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [notifGranted, setNotifGranted] = useState(false);
   const grantedRef = useRef(false);
 
-  const stats = useMemo(() => computeStats(entries, settings), [entries, settings]);
+  // «Сьогодні» оновлюється при поверненні застосунку на передній план,
+  // інакше після півночі дашборд показував би вчорашній день як сьогодні
+  const [today, setToday] = useState(todayISO);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setToday(todayISO());
+    });
+    return () => sub.remove();
+  }, []);
+
+  const stats = useMemo(() => computeStats(entries, settings, today), [entries, settings, today]);
 
   useEffect(() => {
     (async () => {
@@ -63,11 +79,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // Перепланувати «прокрут»-нагадування при зміні журналу чи налаштувань
+  // Перепланувати «прокрут»-нагадування при зміні журналу, налаштувань чи дати
   useEffect(() => {
     if (!notifGranted) return;
     planSpinReminders(entries, settings).catch(() => {});
-  }, [entries, settings, notifGranted]);
+  }, [entries, settings, notifGranted, today]);
 
   const saveEntry = useCallback((e: Entry) => {
     store.upsertEntry(e);
@@ -76,6 +92,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const removeEntry = useCallback((date: string) => {
     store.deleteEntry(date);
+    setEntries(store.loadEntries());
+  }, []);
+
+  const importEntries = useCallback((list: Entry[]) => {
+    store.upsertEntries(list);
     setEntries(store.loadEntries());
   }, []);
 
@@ -106,12 +127,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setReminders(store.loadReminders());
   }, []);
 
-  const addPost = useCallback((title: string, content: string) => {
+  const addPost = useCallback((title: string, content: string, images: string[] = []) => {
     const now = new Date().toISOString();
     const post = store.insertPost({
       title,
       content,
       status: 'draft',
+      images,
       createdAt: now,
       updatedAt: now,
     });
@@ -132,6 +154,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         store.updateReminder({ ...r, postId: null, enabled: false, notifIds: [] });
       }
     }
+    const post = store.loadPosts().find((p) => p.id === id);
+    if (post) deleteImages(post.images);
     store.deletePost(id);
     setPosts(store.loadPosts());
     setReminders(store.loadReminders());
@@ -162,8 +186,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     posts,
     stats,
     notifGranted,
+    today,
     saveEntry,
     removeEntry,
+    importEntries,
     updateSettings,
     addReminder,
     editReminder,

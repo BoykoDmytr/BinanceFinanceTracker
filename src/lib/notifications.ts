@@ -6,7 +6,7 @@ import { addDays, parseDate, todayISO } from './format';
 import type { Entry, Reminder, Settings } from './types';
 
 const SPIN_PREFIX = 'spin-';
-const SPIN_DAYS_AHEAD = 14;
+const SPIN_DAYS_AHEAD = 30;
 export const CHANNEL_ID = 'reminders';
 
 Notifications.setNotificationHandler({
@@ -48,19 +48,26 @@ function dateAt(iso: string, hhmm: string): Date {
   return d;
 }
 
+// Лічильник поколінь: якщо під час await почалось нове планування,
+// старе перериває себе — інакше два паралельні запуски лишать дублікати.
+let planGeneration = 0;
+
 /**
- * Планує нагадування «прокрут» на найближчі 14 днів наперед, пропускаючи дні,
+ * Планує нагадування «прокрут» на 30 днів наперед, пропускаючи дні,
  * за які вже є запис. Викликається при кожному старті застосунку та після
  * кожного збереження запису — тому «наперед» тут лише страховка на випадок,
  * якщо застосунок довго не відкривали.
  */
 export async function planSpinReminders(entries: Entry[], settings: Settings): Promise<void> {
+  const gen = ++planGeneration;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  if (gen !== planGeneration) return;
   await Promise.all(
     scheduled
       .filter((n) => n.identifier.startsWith(SPIN_PREFIX))
       .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier))
   );
+  if (gen !== planGeneration) return;
 
   if (!settings.spinReminderEnabled) return;
 
@@ -69,6 +76,7 @@ export async function planSpinReminders(entries: Entry[], settings: Settings): P
   const today = todayISO();
 
   for (let i = 0; i < SPIN_DAYS_AHEAD; i++) {
+    if (gen !== planGeneration) return;
     const iso = i === 0 ? today : addDays(today, i);
     if (activeDates.has(iso)) continue;
 
@@ -77,13 +85,16 @@ export async function planSpinReminders(entries: Entry[], settings: Settings): P
       await Notifications.scheduleNotificationAsync({
         identifier: `${SPIN_PREFIX}${iso}`,
         content: {
-          title: '🐝 Час крутити!',
+          title: 'Час крутити! 🔄',
           body: 'За сьогодні ще немає запису. Зроби прокрут і занеси його в журнал.',
           sound: true,
           data: { url: '/journal' },
-          ...(Platform.OS === 'android' ? { channelId: CHANNEL_ID } : {}),
         },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: first },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: first,
+          channelId: CHANNEL_ID,
+        },
       });
     }
 
@@ -97,9 +108,12 @@ export async function planSpinReminders(entries: Entry[], settings: Settings): P
             body: 'Стрік під загрозою! Крутни або запиши день, поки він не згорів.',
             sound: true,
             data: { url: '/journal' },
-            ...(Platform.OS === 'android' ? { channelId: CHANNEL_ID } : {}),
           },
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: second },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: second,
+            channelId: CHANNEL_ID,
+          },
         });
       }
     }
@@ -123,7 +137,6 @@ export async function scheduleReminderNotifs(r: Reminder): Promise<string[]> {
     body: r.body || (r.postId ? 'Час запостити заготовку — відкрий її в застосунку.' : ''),
     sound: true,
     data: { url: r.postId ? `/post/${r.postId}` : '/reminders' },
-    ...(Platform.OS === 'android' ? { channelId: CHANNEL_ID } : {}),
   };
 
   const ids: string[] = [];
@@ -131,7 +144,12 @@ export async function scheduleReminderNotifs(r: Reminder): Promise<string[]> {
     ids.push(
       await Notifications.scheduleNotificationAsync({
         content,
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute,
+          channelId: CHANNEL_ID,
+        },
       })
     );
   } else if (r.kind === 'weekly') {
@@ -146,6 +164,7 @@ export async function scheduleReminderNotifs(r: Reminder): Promise<string[]> {
             weekday: expoWeekday,
             hour,
             minute,
+            channelId: CHANNEL_ID,
           },
         })
       );
@@ -156,7 +175,11 @@ export async function scheduleReminderNotifs(r: Reminder): Promise<string[]> {
       ids.push(
         await Notifications.scheduleNotificationAsync({
           content,
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: when },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: when,
+            channelId: CHANNEL_ID,
+          },
         })
       );
     }

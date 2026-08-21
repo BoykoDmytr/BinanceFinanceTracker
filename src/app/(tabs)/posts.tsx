@@ -32,6 +32,9 @@ export default function Posts() {
               <Text style={styles.title} numberOfLines={1}>
                 {p.title}
               </Text>
+              {p.images.length > 0 ? (
+                <Chip text={`🖼 ${p.images.length}`} color={colors.blue} bg={colors.blueDim} />
+              ) : null}
               {p.status === 'published' ? (
                 <Chip text="опубліковано" color={colors.green} bg={colors.greenDim} />
               ) : (

@@ -1,19 +1,23 @@
 import * as Clipboard from 'expo-clipboard';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useRef, useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 
 import { Btn, Field, ToggleRow } from '../../components/ui';
 import { useData } from '../../lib/data-context';
+import { deleteImages, pickImages } from '../../lib/images';
 import { colors, radius, spacing } from '../../lib/theme';
 
 export default function PostEditor() {
@@ -26,6 +30,7 @@ export default function PostEditor() {
   const [title, setTitle] = useState(existing?.title ?? '');
   const [content, setContent] = useState(existing?.content ?? '');
   const [published, setPublished] = useState(existing?.status === 'published');
+  const [images, setImages] = useState<string[]>(existing?.images ?? []);
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -33,6 +38,7 @@ export default function PostEditor() {
     title: title.trim() || 'Без назви',
     content,
     status: (published ? 'published' : 'draft') as 'published' | 'draft',
+    images,
   });
 
   const save = () => {
@@ -40,8 +46,8 @@ export default function PostEditor() {
     if (existing) {
       editPost({ ...existing, ...data });
     } else {
-      const p = addPost(data.title, data.content);
-      if (data.status === 'published') editPost({ ...p, status: 'published' });
+      const p = addPost(data.title, data.content, data.images);
+      if (data.status === 'published') editPost({ ...p, ...data });
     }
     router.back();
   };
@@ -53,6 +59,37 @@ export default function PostEditor() {
     copyTimer.current = setTimeout(() => setCopied(false), 1500);
   };
 
+  const addImages = async () => {
+    try {
+      const picked = await pickImages();
+      if (picked.length) setImages((prev) => [...prev, ...picked]);
+    } catch {
+      Alert.alert('Не вдалося додати картинку', 'Спробуй ще раз.');
+    }
+  };
+
+  const removeImage = (uri: string) => {
+    Alert.alert('Прибрати картинку?', '', [
+      { text: 'Скасувати', style: 'cancel' },
+      {
+        text: 'Прибрати',
+        style: 'destructive',
+        onPress: () => {
+          deleteImages([uri]);
+          setImages((prev) => prev.filter((u) => u !== uri));
+        },
+      },
+    ]);
+  };
+
+  const shareImage = async (uri: string) => {
+    try {
+      await Sharing.shareAsync(uri);
+    } catch {
+      // користувач закрив шіт — нічого
+    }
+  };
+
   const remind = () => {
     // щоб прив'язати нагадування, пост має існувати — зберігаємо його
     if (existing) {
@@ -60,7 +97,7 @@ export default function PostEditor() {
       router.push(`/reminder/new?postId=${existing.id}`);
     } else {
       const data = buildPost();
-      const p = addPost(data.title, data.content);
+      const p = addPost(data.title, data.content, data.images);
       router.replace(`/reminder/new?postId=${p.id}`);
     }
   };
@@ -99,6 +136,26 @@ export default function PostEditor() {
           multiline
           textAlignVertical="top"
         />
+
+        <Text style={styles.label}>Картинки</Text>
+        <View style={styles.imagesRow}>
+          {images.map((uri) => (
+            <TouchableOpacity
+              key={uri}
+              onPress={() => shareImage(uri)}
+              onLongPress={() => removeImage(uri)}
+              activeOpacity={0.8}
+            >
+              <Image source={{ uri }} style={styles.thumb} />
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={styles.addThumb} onPress={addImages} activeOpacity={0.7}>
+            <Text style={styles.addThumbText}>＋</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.imagesHint}>
+          Тап по картинці — поділитись (щоб вставити в пост), довгий тап — прибрати.
+        </Text>
 
         <View style={styles.actionsRow}>
           <Btn
@@ -146,5 +203,27 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginBottom: spacing.m,
   },
+  imagesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  thumb: {
+    width: 84,
+    height: 84,
+    borderRadius: radius.s,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.cardAlt,
+  },
+  addThumb: {
+    width: 84,
+    height: 84,
+    borderRadius: radius.s,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardAlt,
+  },
+  addThumbText: { color: colors.gold, fontSize: 28, fontWeight: '300' },
+  imagesHint: { color: colors.faint, fontSize: 11, marginTop: 6, marginBottom: spacing.m },
   actionsRow: { flexDirection: 'row', gap: spacing.m, marginBottom: spacing.m },
 });

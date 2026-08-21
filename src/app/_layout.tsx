@@ -14,6 +14,9 @@ export default function RootLayout() {
     if (typeof url === 'string') {
       // даємо роутеру змонтуватись
       setTimeout(() => router.push(url as never), 100);
+      // скидаємо відповідь: повторний тап по щоденному/щотижневому нагадуванню
+      // приходить з тим самим identifier і без скидання ефект не спрацює вдруге
+      Notifications.clearLastNotificationResponseAsync().catch(() => {});
     }
   }, [lastResponse]);
 

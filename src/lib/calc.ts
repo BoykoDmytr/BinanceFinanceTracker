@@ -8,7 +8,7 @@ export interface DayPoint {
   volume: number;
 }
 
-export interface DropDay {
+export interface IncomeDay {
   date: string;
   income: number;
   pointsSpent: number;
@@ -24,6 +24,7 @@ export interface Stats {
   totalFees: number;
   totalGas: number;
   totalDrop: number;
+  totalBooster: number;
   activeDays: number;
   pointsEarned: number;
   pointsSpent: number;
@@ -32,7 +33,8 @@ export interface Stats {
   streak: number;
   todayLogged: boolean;
   series: DayPoint[];
-  drops: DropDay[];
+  drops: IncomeDay[];
+  boosters: IncomeDay[];
 }
 
 export function sortByDate(entries: Entry[]): Entry[] {
@@ -41,14 +43,14 @@ export function sortByDate(entries: Entry[]): Entry[] {
 
 /** День вважається «прокрученим», якщо в ньому є фактична активність. */
 export function isActive(e: Entry): boolean {
-  return e.volume > 0 || e.fee > 0 || e.dropIncome > 0;
+  return e.volume > 0 || e.fee > 0 || e.dropIncome > 0 || e.boosterIncome > 0;
 }
 
 /**
- * Та сама математика, що й у Excel-таблиці:
- *  Баланс = старт − Σкомісій − Σгазу + Σдоходів з дропів
+ * Та сама математика, що й у Excel-таблиці (плюс окрема графа бустерів):
+ *  Баланс = старт − Σкомісій − Σгазу + Σдропів + Σбустерів
  *  Бали   = старт + Σ(бали+) − Σ(бали−)
- *  P&L    = Σдропів − Σкомісій − Σгазу
+ *  P&L    = Σдропів + Σбустерів − Σкомісій − Σгазу
  *  ROI    = P&L / (Σкомісій + Σгазу)
  */
 export function computeStats(entries: Entry[], s: Settings, today = todayISO()): Stats {
@@ -60,20 +62,23 @@ export function computeStats(entries: Entry[], s: Settings, today = todayISO()):
   let totalFees = 0;
   let totalGas = 0;
   let totalDrop = 0;
+  let totalBooster = 0;
   let pointsEarned = 0;
   let pointsSpent = 0;
   let activeDays = 0;
 
   const series: DayPoint[] = [];
-  const drops: DropDay[] = [];
+  const drops: IncomeDay[] = [];
+  const boosters: IncomeDay[] = [];
 
   for (const e of sorted) {
-    balance += e.dropIncome - e.fee - e.gasExpense;
+    balance += e.dropIncome + e.boosterIncome - e.fee - e.gasExpense;
     points += e.pointsPlus - e.pointsMinus;
     totalVolume += e.volume;
     totalFees += e.fee;
     totalGas += e.gasExpense;
     totalDrop += e.dropIncome;
+    totalBooster += e.boosterIncome;
     pointsEarned += e.pointsPlus;
     pointsSpent += e.pointsMinus;
     if (isActive(e)) activeDays += 1;
@@ -81,9 +86,12 @@ export function computeStats(entries: Entry[], s: Settings, today = todayISO()):
     if (e.dropIncome > 0) {
       drops.push({ date: e.date, income: e.dropIncome, pointsSpent: e.pointsMinus, comment: e.comment });
     }
+    if (e.boosterIncome > 0) {
+      boosters.push({ date: e.date, income: e.boosterIncome, pointsSpent: e.pointsMinus, comment: e.comment });
+    }
   }
 
-  const pnl = totalDrop - totalFees - totalGas;
+  const pnl = totalDrop + totalBooster - totalFees - totalGas;
   const costs = totalFees + totalGas;
 
   const byDate = new Map(sorted.map((e) => [e.date, e]));
@@ -113,6 +121,7 @@ export function computeStats(entries: Entry[], s: Settings, today = todayISO()):
     totalFees,
     totalGas,
     totalDrop,
+    totalBooster,
     activeDays,
     pointsEarned,
     pointsSpent,
@@ -122,7 +131,51 @@ export function computeStats(entries: Entry[], s: Settings, today = todayISO()):
     todayLogged,
     series,
     drops: drops.reverse(),
+    boosters: boosters.reverse(),
   };
+}
+
+export interface PeriodSummary {
+  days: number;
+  activeDays: number;
+  volume: number;
+  fees: number;
+  gas: number;
+  drop: number;
+  booster: number;
+  pointsEarned: number;
+  pointsSpent: number;
+  pnl: number;
+}
+
+/** Стислий підсумок за останні `days` днів (включно з сьогодні). */
+export function periodSummary(entries: Entry[], days: number, today = todayISO()): PeriodSummary {
+  const from = addDays(today, -(days - 1));
+  const sum: PeriodSummary = {
+    days,
+    activeDays: 0,
+    volume: 0,
+    fees: 0,
+    gas: 0,
+    drop: 0,
+    booster: 0,
+    pointsEarned: 0,
+    pointsSpent: 0,
+    pnl: 0,
+  };
+  for (const e of entries) {
+    if (e.date < from || e.date > today) continue;
+    sum.volume += e.volume;
+    sum.fees += e.fee;
+    sum.gas += e.gasExpense;
+    sum.drop += e.dropIncome;
+    sum.booster += e.boosterIncome;
+    sum.pointsEarned += e.pointsPlus;
+    sum.pointsSpent += e.pointsMinus;
+    if (isActive(e)) sum.activeDays += 1;
+  }
+  sum.pnl = sum.drop + sum.booster - sum.fees - sum.gas;
+  return sum;
 }
 
 /** Прогноз: скільки балів буде через n днів за поточного темпу. */

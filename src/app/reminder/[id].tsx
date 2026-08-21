@@ -13,7 +13,7 @@ import {
 
 import { Btn, Field, TimeStepper } from '../../components/ui';
 import { useData } from '../../lib/data-context';
-import { addDays, dateHumanWD, todayISO } from '../../lib/format';
+import { addDays, dateHumanWD, parseDate, todayISO } from '../../lib/format';
 import { colors, radius, spacing } from '../../lib/theme';
 import type { ReminderKind } from '../../lib/types';
 
@@ -58,6 +58,15 @@ export default function ReminderEditor() {
     if (kind === 'weekly' && weekdays.length === 0) {
       Alert.alert('Немає днів', 'Обери хоча б один день тижня.');
       return;
+    }
+    if (kind === 'once') {
+      const [h, m] = time.split(':').map(Number);
+      const when = parseDate(date);
+      when.setHours(h, m, 0, 0);
+      if (when.getTime() <= Date.now()) {
+        Alert.alert('Час у минулому', 'Обери майбутню дату або час — інакше нагадування не спрацює.');
+        return;
+      }
     }
     const data = {
       title: t,

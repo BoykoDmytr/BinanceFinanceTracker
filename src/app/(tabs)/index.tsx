@@ -17,20 +17,18 @@ import {
   moneySigned,
   num,
   pct,
-  todayISO,
 } from '../../lib/format';
 import { colors, spacing } from '../../lib/theme';
 
 export default function Dashboard() {
-  const { stats, settings, entries } = useData();
-  const today = todayISO();
+  const { stats, settings, entries, today } = useData();
 
   const balanceSeries = stats.series.map((p) => ({ date: p.date, value: p.balance }));
   const pointsSeries = stats.series.map((p) => ({ date: p.date, value: p.points }));
   const volumeSeries = stats.series.slice(-30).map((p) => ({ date: p.date, value: p.volume }));
 
   return (
-    <Screen title="CRYPTO HORNET" subtitle={dateHumanWD(today)}>
+    <Screen title="CryptoFinance Tracker" subtitle={dateHumanWD(today)}>
       {/* Статус дня */}
       {stats.todayLogged ? (
         <View style={[styles.banner, { backgroundColor: colors.greenDim, borderColor: colors.green }]}>
@@ -84,15 +82,30 @@ export default function Dashboard() {
       <SectionTitle>Графіки</SectionTitle>
       <Card>
         <Text style={styles.chartTitle}>Баланс, $</Text>
-        <LineChart data={balanceSeries} color={colors.gold} formatValue={(v) => money(v)} />
+        <LineChart
+          data={balanceSeries}
+          color={colors.gold}
+          formatValue={(v) => money(v)}
+          formatAxis={(v) => money(v, 0)}
+        />
       </Card>
       <Card>
         <Text style={styles.chartTitle}>Бали (залишок)</Text>
-        <LineChart data={pointsSeries} color={colors.blue} formatValue={(v) => num(v)} />
+        <LineChart
+          data={pointsSeries}
+          color={colors.blue}
+          formatValue={(v) => num(v)}
+          formatAxis={(v) => num(v)}
+        />
       </Card>
       <Card>
         <Text style={styles.chartTitle}>Обсяг торгівлі (останні 30 днів), $</Text>
-        <BarChart data={volumeSeries} color={colors.green} formatValue={(v) => money(v, 0)} />
+        <BarChart
+          data={volumeSeries}
+          color={colors.green}
+          formatValue={(v) => money(v, 0)}
+          formatAxis={(v) => money(v, 0)}
+        />
       </Card>
 
       <SectionTitle>Прогноз балів</SectionTitle>
@@ -111,6 +124,7 @@ export default function Dashboard() {
         <RowStat label="Загальні комісії" value={money(stats.totalFees)} negative />
         <RowStat label="Витрати на дропи (газ/фі)" value={money(stats.totalGas)} negative />
         <RowStat label="Дохід з дропів" value={money(stats.totalDrop)} positive />
+        <RowStat label="Дохід з бустерів" value={money(stats.totalBooster)} positive />
         <RowStat label="Активних днів" value={String(stats.activeDays)} />
         <RowStat label="Балів зароблено" value={num(stats.pointsEarned)} />
         <RowStat label="Балів витрачено" value={num(stats.pointsSpent)} />
@@ -119,36 +133,58 @@ export default function Dashboard() {
       </Card>
 
       <SectionTitle>Дропи</SectionTitle>
-      {stats.drops.length === 0 ? (
-        <Card>
-          <Text style={styles.hint}>Поки що жодного дропу не записано.</Text>
-        </Card>
-      ) : (
-        <Card>
-          {stats.drops.map((d, i) => (
-            <View
-              key={d.date}
-              style={[styles.dropRow, i < stats.drops.length - 1 && styles.dropRowBorder]}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dropDate}>{dateHuman(d.date, true)}</Text>
-                {d.comment ? (
-                  <Text style={styles.dropComment} numberOfLines={1}>
-                    {d.comment}
-                  </Text>
-                ) : null}
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.dropIncome}>{moneySigned(d.income)}</Text>
-                {d.pointsSpent > 0 ? (
-                  <Text style={styles.dropPoints}>−{num(d.pointsSpent)} балів</Text>
-                ) : null}
-              </View>
-            </View>
-          ))}
-        </Card>
-      )}
+      <IncomeList
+        items={stats.drops}
+        emptyText="Поки що жодного дропу не записано."
+        showPoints
+      />
+
+      <SectionTitle>Бустери</SectionTitle>
+      <IncomeList
+        items={stats.boosters}
+        emptyText={'Поки що жодного доходу з бустерів.\nВписуй його в журналі — графа «Дохід з бустерів».'}
+      />
     </Screen>
+  );
+}
+
+function IncomeList({
+  items,
+  emptyText,
+  showPoints,
+}: {
+  items: { date: string; income: number; pointsSpent: number; comment: string }[];
+  emptyText: string;
+  showPoints?: boolean;
+}) {
+  if (items.length === 0) {
+    return (
+      <Card>
+        <Text style={styles.hint}>{emptyText}</Text>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      {items.map((d, i) => (
+        <View key={d.date} style={[styles.dropRow, i < items.length - 1 && styles.dropRowBorder]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.dropDate}>{dateHuman(d.date, true)}</Text>
+            {d.comment ? (
+              <Text style={styles.dropComment} numberOfLines={1}>
+                {d.comment}
+              </Text>
+            ) : null}
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.dropIncome}>{moneySigned(d.income)}</Text>
+            {showPoints && d.pointsSpent > 0 ? (
+              <Text style={styles.dropPoints}>−{num(d.pointsSpent)} балів</Text>
+            ) : null}
+          </View>
+        </View>
+      ))}
+    </Card>
   );
 }
 
