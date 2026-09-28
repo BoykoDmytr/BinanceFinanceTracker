@@ -14,6 +14,7 @@ import {
   forecastPoints,
   periodSummary,
 } from '../src/lib/calc';
+import { fileSlug } from '../src/lib/format';
 import { SEED_ENTRIES, SEED_SETTINGS } from '../src/lib/seed';
 import type { AccountParams, Entry } from '../src/lib/types';
 
@@ -106,6 +107,11 @@ const missing = (date: string) => accountsMissing(accs, byAccount, date).map((a)
 checkEq('Не записано 21.08 (порожній день не рахується)', missing('2026-08-21'), '2,3');
 checkEq('Не записано 20.08', missing('2026-08-20'), '3');
 checkEq('Не записано 22.08', missing('2026-08-22'), '1,2,3');
+
+// ім'я файлу експорту: лише безпечні символи, кирилиця лишається
+checkEq('Файл: кирилиця і пробіли', fileSlug('Телефон мами (Ґалина)'), 'Телефон-мами-Ґалина');
+checkEq('Файл: дужки й спецсимволи', fileSlug('[Samsung] #2 / 50%'), 'Samsung-2-50');
+checkEq('Файл: лише спецсимволи', fileSlug(' ?*[] '), 'account');
 
 if (failed > 0) {
   console.error(`\n${failed} перевірок не пройшло`);

@@ -21,6 +21,8 @@ export default function SettingsScreen() {
   };
 
   const importCsv = async () => {
+    // цільовий акаунт фіксуємо до відкриття пікера — саме його названо в діалозі
+    const target = activeAccount;
     try {
       const parsed = await pickCsvEntries();
       if (!parsed) return;
@@ -28,14 +30,14 @@ export default function SettingsScreen() {
       const first = sorted[0].date;
       const last = sorted[sorted.length - 1].date;
       Alert.alert(
-        `Імпорт у «${activeAccount.name}»`,
-        `Знайдено ${parsed.length} записів (${dateHuman(first, true)} — ${dateHuman(last, true)}).\n\nЇх буде додано в журнал акаунта «${activeAccount.name}». Записи з тими самими датами буде перезаписано, решта днів залишаться як є.`,
+        `Імпорт у «${target.name}»`,
+        `Знайдено ${parsed.length} записів (${dateHuman(first, true)} — ${dateHuman(last, true)}).\n\nЇх буде додано в журнал акаунта «${target.name}». Записи з тими самими датами буде перезаписано, решта днів залишаться як є.`,
         [
           { text: 'Скасувати', style: 'cancel' },
           {
             text: 'Імпортувати',
             onPress: () => {
-              importEntries(parsed);
+              importEntries(target.id, parsed);
               Alert.alert('Готово', `Імпортовано ${parsed.length} записів.`);
             },
           },

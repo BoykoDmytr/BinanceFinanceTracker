@@ -52,9 +52,11 @@ interface DataContextValue {
   editAccount: (a: Account) => void;
   removeAccount: (id: number) => void;
 
-  saveEntry: (e: Entry) => void;
-  removeEntry: (date: string) => void;
-  importEntries: (list: Entry[]) => void;
+  // запис завжди з явним акаунтом: форма не має писати в той, що став
+  // активним уже після її відкриття (напр. через тап по сповіщенню)
+  saveEntry: (accountId: number, e: Entry) => void;
+  removeEntry: (accountId: number, date: string) => void;
+  importEntries: (accountId: number, list: Entry[]) => void;
   updateSettings: (s: Settings) => void;
 
   addReminder: (r: Omit<Reminder, 'id' | 'notifIds'>) => Promise<void>;
@@ -138,7 +140,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setAccounts(store.loadAccounts());
   }, []);
 
-  // записи завжди йдуть в активний акаунт — той, чий журнал зараз на екрані
   const activeAccountId = activeAccount.id;
 
   const removeAccount = useCallback(
@@ -153,29 +154,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [activeAccountId, setActiveAccount]
   );
 
-  const saveEntry = useCallback(
-    (e: Entry) => {
-      store.upsertEntry(activeAccountId, e);
-      setEntriesByAccount(store.loadEntriesByAccount());
-    },
-    [activeAccountId]
-  );
+  const saveEntry = useCallback((accountId: number, e: Entry) => {
+    store.upsertEntry(accountId, e);
+    setEntriesByAccount(store.loadEntriesByAccount());
+  }, []);
 
-  const removeEntry = useCallback(
-    (date: string) => {
-      store.deleteEntry(activeAccountId, date);
-      setEntriesByAccount(store.loadEntriesByAccount());
-    },
-    [activeAccountId]
-  );
+  const removeEntry = useCallback((accountId: number, date: string) => {
+    store.deleteEntry(accountId, date);
+    setEntriesByAccount(store.loadEntriesByAccount());
+  }, []);
 
-  const importEntries = useCallback(
-    (list: Entry[]) => {
-      store.upsertEntries(activeAccountId, list);
-      setEntriesByAccount(store.loadEntriesByAccount());
-    },
-    [activeAccountId]
-  );
+  const importEntries = useCallback((accountId: number, list: Entry[]) => {
+    store.upsertEntries(accountId, list);
+    setEntriesByAccount(store.loadEntriesByAccount());
+  }, []);
 
   const updateSettings = useCallback((s: Settings) => {
     store.saveSettings(s);

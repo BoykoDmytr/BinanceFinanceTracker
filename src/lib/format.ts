@@ -79,3 +79,16 @@ export function daysWord(n: number): string {
   if (last >= 2 && last <= 4) return 'дні';
   return 'днів';
 }
+
+/**
+ * Назва акаунта → безпечна частина імені файлу. Білий список (латиниця,
+ * українська кирилиця, цифри, . _ -): символи на кшталт [ ] # % ламають
+ * file:// URI на Android, тож усе інше замінюється на дефіс.
+ */
+export function fileSlug(name: string): string {
+  const slug = name
+    .replace(/[^0-9A-Za-zА-Яа-яЁёІіЇїЄєҐґ._-]+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 40);
+  return slug || 'account';
+}

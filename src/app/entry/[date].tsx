@@ -29,9 +29,14 @@ function numToStr(n: number): string {
 export default function EntryForm() {
   const params = useLocalSearchParams<{ date: string }>();
   const date = typeof params.date === 'string' ? params.date : todayISO();
-  const { entries, activeAccount, accounts, saveEntry, removeEntry } = useData();
+  const { entriesByAccount, activeAccount, accounts, saveEntry, removeEntry } = useData();
 
-  const existing = entries.find((e) => e.date === date) ?? null;
+  // Форма прив'язана до акаунта, для якого її відкрили: якщо поки вона відкрита
+  // активний акаунт зміниться (тап по сповіщенню), запис не піде в чужий журнал.
+  const [accountId] = useState(activeAccount.id);
+  const account = accounts.find((a) => a.id === accountId) ?? activeAccount;
+
+  const existing = (entriesByAccount[account.id] ?? []).find((e) => e.date === date) ?? null;
 
   const [volume, setVolume] = useState('');
   const [fee, setFee] = useState('');
@@ -46,7 +51,7 @@ export default function EntryForm() {
   useEffect(() => {
     setVolume(existing ? numToStr(existing.volume) : '');
     setFee(existing ? numToStr(existing.fee) : '');
-    setPointsPlus(existing ? numToStr(existing.pointsPlus) : String(activeAccount.defaultPoints));
+    setPointsPlus(existing ? numToStr(existing.pointsPlus) : String(account.defaultPoints));
     setPointsMinus(existing ? numToStr(existing.pointsMinus) : '');
     setDropIncome(existing ? numToStr(existing.dropIncome) : '');
     setBoosterIncome(existing ? numToStr(existing.boosterIncome) : '');
@@ -68,7 +73,7 @@ export default function EntryForm() {
       comment: comment.trim(),
     };
     const doSave = () => {
-      saveEntry(entry);
+      saveEntry(account.id, entry);
       router.back();
     };
     // захист від випадкового «порожнього» дня, який непомітно додасть бали
@@ -101,7 +106,7 @@ export default function EntryForm() {
         text: 'Видалити',
         style: 'destructive',
         onPress: () => {
-          removeEntry(date);
+          removeEntry(account.id, date);
           router.back();
         },
       },
@@ -131,7 +136,7 @@ export default function EntryForm() {
 
         {accounts.length > 1 ? (
           <Text style={styles.account} numberOfLines={1}>
-            Акаунт: <Text style={styles.accountName}>{activeAccount.name}</Text>
+            Акаунт: <Text style={styles.accountName}>{account.name}</Text>
           </Text>
         ) : null}
 

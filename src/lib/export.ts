@@ -3,7 +3,7 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 import { sortByDate } from './calc';
-import { todayISO } from './format';
+import { fileSlug, todayISO } from './format';
 import type { Entry } from './types';
 
 const HEADERS = {
@@ -40,16 +40,6 @@ export function entriesToCsv(entries: Entry[]): string {
   );
   // BOM — щоб Excel коректно відкрив кирилицю
   return '﻿' + header + '\n' + lines.join('\n') + '\n';
-}
-
-/** Назва акаунта → безпечна частина імені файлу (кирилицю лишаємо). */
-function fileSlug(name: string): string {
-  const slug = name
-    .trim()
-    .replace(/[\\/:*?"<>|\s]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  return slug || 'account';
 }
 
 export async function shareCsv(entries: Entry[], accountName: string): Promise<void> {
