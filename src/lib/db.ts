@@ -1,9 +1,37 @@
 import * as SQLite from 'expo-sqlite';
 
 import { SEED_ENTRIES, SEED_SETTINGS } from './seed';
-import type { Entry, Post, Reminder, ReminderKind, Settings } from './types';
+import type {
+  Account,
+  EntriesByAccount,
+  Entry,
+  Post,
+  Reminder,
+  ReminderKind,
+  Settings,
+} from './types';
 
 const db = SQLite.openDatabaseSync('cryptohornet.db');
+
+const DEFAULT_ACCOUNT_NAME = 'Основний акаунт';
+
+// Один день журналу — один рядок на акаунт.
+function entriesTableSql(name: string): string {
+  return `
+    CREATE TABLE IF NOT EXISTS ${name} (
+      account_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      volume REAL NOT NULL DEFAULT 0,
+      fee REAL NOT NULL DEFAULT 0,
+      points_plus INTEGER NOT NULL DEFAULT 0,
+      points_minus INTEGER NOT NULL DEFAULT 0,
+      drop_income REAL NOT NULL DEFAULT 0,
+      booster_income REAL NOT NULL DEFAULT 0,
+      gas_expense REAL NOT NULL DEFAULT 0,
+      comment TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (account_id, date)
+    );`;
+}
 
 export function initDb(): void {
   db.execSync(`
@@ -12,17 +40,15 @@ export function initDb(): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS entries (
-      date TEXT PRIMARY KEY,
-      volume REAL NOT NULL DEFAULT 0,
-      fee REAL NOT NULL DEFAULT 0,
-      points_plus INTEGER NOT NULL DEFAULT 0,
-      points_minus INTEGER NOT NULL DEFAULT 0,
-      drop_income REAL NOT NULL DEFAULT 0,
-      booster_income REAL NOT NULL DEFAULT 0,
-      gas_expense REAL NOT NULL DEFAULT 0,
-      comment TEXT NOT NULL DEFAULT ''
+    CREATE TABLE IF NOT EXISTS accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      start_balance REAL NOT NULL DEFAULT 0,
+      start_points INTEGER NOT NULL DEFAULT 0,
+      default_points INTEGER NOT NULL DEFAULT 0,
+      spin_reminder INTEGER NOT NULL DEFAULT 1
     );
+    ${entriesTableSql('entries')}
     CREATE TABLE IF NOT EXISTS reminders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -47,9 +73,15 @@ export function initDb(): void {
   `);
   migrate();
   seedIfNeeded();
+  ensureAccount();
 }
 
-// Додає колонки, яких немає в базі, що лишилась від старішої версії застосунку.
+function hasColumn(table: string, column: string): boolean {
+  const cols = db.getAllSync<{ name: string }>(`PRAGMA table_info(${table})`);
+  return cols.some((c) => c.name === column);
+}
+
+// Доводить базу, що лишилась від старішої версії застосунку, до поточної схеми.
 function migrate(): void {
   const addColumn = (sql: string) => {
     try {
@@ -60,18 +92,56 @@ function migrate(): void {
   };
   addColumn('ALTER TABLE entries ADD COLUMN booster_income REAL NOT NULL DEFAULT 0');
   addColumn("ALTER TABLE posts ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
+
+  // До мультиакаунту журнал був один (ключ — лише дата). Первинний ключ у
+  // SQLite змінити не можна, тому перебудовуємо таблицю, а всі наявні записи
+  // переносимо в перший акаунт.
+  if (!hasColumn('entries', 'account_id')) {
+    db.withTransactionSync(() => {
+      const accountId = ensureAccount();
+      db.execSync(`DROP TABLE IF EXISTS entries_v2; ${entriesTableSql('entries_v2')}`);
+      db.runSync(
+        `INSERT INTO entries_v2 (account_id, date, volume, fee, points_plus, points_minus,
+           drop_income, booster_income, gas_expense, comment)
+         SELECT ?, date, volume, fee, points_plus, points_minus,
+           drop_income, booster_income, gas_expense, comment
+         FROM entries`,
+        [accountId]
+      );
+      db.execSync('DROP TABLE entries; ALTER TABLE entries_v2 RENAME TO entries;');
+    });
+  }
 }
 
 function seedIfNeeded(): void {
-  const seeded = getSetting('seeded');
-  if (seeded === '1') return;
+  if (getSetting('seeded') === '1') return;
   db.withTransactionSync(() => {
-    for (const e of SEED_ENTRIES) upsertEntry(e);
-    setSetting('start_balance', String(SEED_SETTINGS.startBalance));
-    setSetting('start_points', String(SEED_SETTINGS.startPoints));
-    setSetting('default_points', String(SEED_SETTINGS.defaultPoints));
+    const accountId = ensureAccount();
+    for (const e of SEED_ENTRIES) upsertEntry(accountId, e);
     setSetting('seeded', '1');
   });
+}
+
+/**
+ * Гарантує, що є хоча б один акаунт, і повертає id першого. Якщо акаунтів ще
+ * немає (перший запуск або оновлення зі старої версії) — створює основний
+ * зі стартовими значеннями, які раніше жили в налаштуваннях.
+ */
+function ensureAccount(): number {
+  const first = db.getFirstSync<{ id: number }>('SELECT id FROM accounts ORDER BY id ASC LIMIT 1');
+  if (first) return first.id;
+  const numOr = (key: string, fallback: number) => {
+    const v = getSetting(key);
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return insertAccount({
+    name: DEFAULT_ACCOUNT_NAME,
+    startBalance: numOr('start_balance', SEED_SETTINGS.startBalance),
+    startPoints: numOr('start_points', SEED_SETTINGS.startPoints),
+    defaultPoints: numOr('default_points', SEED_SETTINGS.defaultPoints),
+    spinReminder: true,
+  }).id;
 }
 
 // ---------- settings ----------
@@ -89,15 +159,7 @@ function setSetting(key: string, value: string): void {
 }
 
 export function loadSettings(): Settings {
-  const numOr = (key: string, fallback: number) => {
-    const v = getSetting(key);
-    const n = v === null ? NaN : Number(v);
-    return Number.isFinite(n) ? n : fallback;
-  };
   return {
-    startBalance: numOr('start_balance', SEED_SETTINGS.startBalance),
-    startPoints: numOr('start_points', SEED_SETTINGS.startPoints),
-    defaultPoints: numOr('default_points', SEED_SETTINGS.defaultPoints),
     spinReminderEnabled: getSetting('spin_reminder_enabled') !== '0',
     spinReminderTime: getSetting('spin_reminder_time') ?? '20:00',
     spinReminderRepeat: getSetting('spin_reminder_repeat') !== '0',
@@ -106,18 +168,78 @@ export function loadSettings(): Settings {
 
 export function saveSettings(s: Settings): void {
   db.withTransactionSync(() => {
-    setSetting('start_balance', String(s.startBalance));
-    setSetting('start_points', String(s.startPoints));
-    setSetting('default_points', String(s.defaultPoints));
     setSetting('spin_reminder_enabled', s.spinReminderEnabled ? '1' : '0');
     setSetting('spin_reminder_time', s.spinReminderTime);
     setSetting('spin_reminder_repeat', s.spinReminderRepeat ? '1' : '0');
   });
 }
 
+/** id активного акаунта; якщо збережений id вже не існує — перший акаунт. */
+export function loadActiveAccountId(accounts: Account[]): number {
+  const saved = Number(getSetting('active_account_id'));
+  return accounts.some((a) => a.id === saved) ? saved : accounts[0].id;
+}
+
+export function saveActiveAccountId(id: number): void {
+  setSetting('active_account_id', String(id));
+}
+
+// ---------- accounts ----------
+
+interface AccountRow {
+  id: number;
+  name: string;
+  start_balance: number;
+  start_points: number;
+  default_points: number;
+  spin_reminder: number;
+}
+
+function rowToAccount(r: AccountRow): Account {
+  return {
+    id: r.id,
+    name: r.name,
+    startBalance: r.start_balance,
+    startPoints: r.start_points,
+    defaultPoints: r.default_points,
+    spinReminder: r.spin_reminder === 1,
+  };
+}
+
+export function loadAccounts(): Account[] {
+  const rows = db.getAllSync<AccountRow>('SELECT * FROM accounts ORDER BY id ASC');
+  return rows.map(rowToAccount);
+}
+
+export function insertAccount(a: Omit<Account, 'id'>): Account {
+  const res = db.runSync(
+    `INSERT INTO accounts (name, start_balance, start_points, default_points, spin_reminder)
+     VALUES (?, ?, ?, ?, ?)`,
+    [a.name, a.startBalance, a.startPoints, a.defaultPoints, a.spinReminder ? 1 : 0]
+  );
+  return { ...a, id: Number(res.lastInsertRowId) };
+}
+
+export function updateAccount(a: Account): void {
+  db.runSync(
+    `UPDATE accounts SET name = ?, start_balance = ?, start_points = ?, default_points = ?,
+       spin_reminder = ? WHERE id = ?`,
+    [a.name, a.startBalance, a.startPoints, a.defaultPoints, a.spinReminder ? 1 : 0, a.id]
+  );
+}
+
+/** Видаляє акаунт разом з усім його журналом. */
+export function deleteAccount(id: number): void {
+  db.withTransactionSync(() => {
+    db.runSync('DELETE FROM entries WHERE account_id = ?', [id]);
+    db.runSync('DELETE FROM accounts WHERE id = ?', [id]);
+  });
+}
+
 // ---------- entries ----------
 
 interface EntryRow {
+  account_id: number;
   date: string;
   volume: number;
   fee: number;
@@ -143,16 +265,19 @@ function rowToEntry(r: EntryRow): Entry {
   };
 }
 
-export function loadEntries(): Entry[] {
-  const rows = db.getAllSync<EntryRow>('SELECT * FROM entries ORDER BY date ASC');
-  return rows.map(rowToEntry);
+/** Журнали всіх акаунтів, згруповані за id акаунта (кожен — за датою). */
+export function loadEntriesByAccount(): EntriesByAccount {
+  const rows = db.getAllSync<EntryRow>('SELECT * FROM entries ORDER BY account_id ASC, date ASC');
+  const out: EntriesByAccount = {};
+  for (const r of rows) (out[r.account_id] ??= []).push(rowToEntry(r));
+  return out;
 }
 
-export function upsertEntry(e: Entry): void {
+export function upsertEntry(accountId: number, e: Entry): void {
   db.runSync(
-    `INSERT INTO entries (date, volume, fee, points_plus, points_minus, drop_income, booster_income, gas_expense, comment)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET
+    `INSERT INTO entries (account_id, date, volume, fee, points_plus, points_minus, drop_income, booster_income, gas_expense, comment)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(account_id, date) DO UPDATE SET
        volume = excluded.volume,
        fee = excluded.fee,
        points_plus = excluded.points_plus,
@@ -162,6 +287,7 @@ export function upsertEntry(e: Entry): void {
        gas_expense = excluded.gas_expense,
        comment = excluded.comment`,
     [
+      accountId,
       e.date,
       e.volume,
       e.fee,
@@ -175,14 +301,14 @@ export function upsertEntry(e: Entry): void {
   );
 }
 
-export function upsertEntries(entries: Entry[]): void {
+export function upsertEntries(accountId: number, entries: Entry[]): void {
   db.withTransactionSync(() => {
-    for (const e of entries) upsertEntry(e);
+    for (const e of entries) upsertEntry(accountId, e);
   });
 }
 
-export function deleteEntry(date: string): void {
-  db.runSync('DELETE FROM entries WHERE date = ?', [date]);
+export function deleteEntry(accountId: number, date: string): void {
+  db.runSync('DELETE FROM entries WHERE account_id = ? AND date = ?', [accountId, date]);
 }
 
 // ---------- reminders ----------

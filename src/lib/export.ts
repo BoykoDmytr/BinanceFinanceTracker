@@ -42,8 +42,21 @@ export function entriesToCsv(entries: Entry[]): string {
   return '﻿' + header + '\n' + lines.join('\n') + '\n';
 }
 
-export async function shareCsv(entries: Entry[]): Promise<void> {
-  const file = new File(Paths.cache, `cryptofinance-tracker-${todayISO()}.csv`);
+/** Назва акаунта → безпечна частина імені файлу (кирилицю лишаємо). */
+function fileSlug(name: string): string {
+  const slug = name
+    .trim()
+    .replace(/[\\/:*?"<>|\s]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return slug || 'account';
+}
+
+export async function shareCsv(entries: Entry[], accountName: string): Promise<void> {
+  const file = new File(
+    Paths.cache,
+    `cryptofinance-tracker-${fileSlug(accountName)}-${todayISO()}.csv`
+  );
   if (file.exists) file.delete();
   file.create();
   file.write(entriesToCsv(entries));

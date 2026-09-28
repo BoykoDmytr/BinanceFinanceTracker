@@ -1,5 +1,5 @@
 import { addDays, todayISO } from './format';
-import type { Entry, Settings } from './types';
+import type { AccountParams, EntriesByAccount, Entry } from './types';
 
 export interface DayPoint {
   date: string;
@@ -53,7 +53,7 @@ export function isActive(e: Entry): boolean {
  *  P&L    = Σдропів + Σбустерів − Σкомісій − Σгазу
  *  ROI    = P&L / (Σкомісій + Σгазу)
  */
-export function computeStats(entries: Entry[], s: Settings, today = todayISO()): Stats {
+export function computeStats(entries: Entry[], s: AccountParams, today = todayISO()): Stats {
   const sorted = sortByDate(entries);
 
   let balance = s.startBalance;
@@ -179,13 +179,24 @@ export function periodSummary(entries: Entry[], days: number, today = todayISO()
 }
 
 /** Прогноз: скільки балів буде через n днів за поточного темпу. */
-export function forecastPoints(stats: Stats, s: Settings, n: number): number {
+export function forecastPoints(stats: Stats, s: AccountParams, n: number): number {
   return Math.round(stats.points + s.defaultPoints * n);
 }
 
 /** Через скільки днів набереться target балів (null — якщо темп нульовий або вже досягнуто). */
-export function daysToPoints(stats: Stats, s: Settings, target: number): number | null {
+export function daysToPoints(stats: Stats, s: AccountParams, target: number): number | null {
   if (target <= stats.points) return 0;
   if (s.defaultPoints <= 0) return null;
   return Math.ceil((target - stats.points) / s.defaultPoints);
+}
+
+/** Акаунти, у яких за дату `date` немає прокруту (активного запису). */
+export function accountsMissing<A extends { id: number }>(
+  accounts: A[],
+  entriesByAccount: EntriesByAccount,
+  date: string
+): A[] {
+  return accounts.filter(
+    (a) => !(entriesByAccount[a.id] ?? []).some((e) => e.date === date && isActive(e))
+  );
 }

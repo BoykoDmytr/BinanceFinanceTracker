@@ -1,9 +1,9 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-import { isActive } from './calc';
+import { accountsMissing } from './calc';
 import { addDays, parseDate, todayISO } from './format';
-import type { Entry, Reminder, Settings } from './types';
+import type { Account, EntriesByAccount, Reminder, Settings } from './types';
 
 const SPIN_PREFIX = 'spin-';
 const SPIN_DAYS_AHEAD = 30;
@@ -53,12 +53,16 @@ function dateAt(iso: string, hhmm: string): Date {
 let planGeneration = 0;
 
 /**
- * Планує нагадування «прокрут» на 30 днів наперед, пропускаючи дні,
- * за які вже є запис. Викликається при кожному старті застосунку та після
- * кожного збереження запису — тому «наперед» тут лише страховка на випадок,
- * якщо застосунок довго не відкривали.
+ * Планує нагадування «прокрут» на 30 днів наперед, пропускаючи дні, за які
+ * всі акаунти з увімкненим нагадуванням уже мають запис. Викликається при
+ * кожному старті застосунку та після кожного збереження запису — тому
+ * «наперед» тут лише страховка на випадок, якщо застосунок довго не відкривали.
  */
-export async function planSpinReminders(entries: Entry[], settings: Settings): Promise<void> {
+export async function planSpinReminders(
+  accounts: Account[],
+  entriesByAccount: EntriesByAccount,
+  settings: Settings
+): Promise<void> {
   const gen = ++planGeneration;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   if (gen !== planGeneration) return;
@@ -69,16 +73,22 @@ export async function planSpinReminders(entries: Entry[], settings: Settings): P
   );
   if (gen !== planGeneration) return;
 
-  if (!settings.spinReminderEnabled) return;
+  const tracked = accounts.filter((a) => a.spinReminder);
+  if (!settings.spinReminderEnabled || tracked.length === 0) return;
 
-  const activeDates = new Set(entries.filter(isActive).map((e) => e.date));
   const now = new Date();
   const today = todayISO();
 
   for (let i = 0; i < SPIN_DAYS_AHEAD; i++) {
     if (gen !== planGeneration) return;
     const iso = i === 0 ? today : addDays(today, i);
-    if (activeDates.has(iso)) continue;
+    const missing = accountsMissing(tracked, entriesByAccount, iso);
+    if (missing.length === 0) continue;
+
+    // з одним акаунтом тексти як раніше; з кількома — кажемо, які саме не записані
+    const who = tracked.length > 1 ? `Не записано: ${missing.map((a) => a.name).join(', ')}.` : null;
+    // тап відкриває журнал першого незаписаного акаунта
+    const data = { url: '/journal', accountId: missing[0].id };
 
     const first = dateAt(iso, settings.spinReminderTime);
     if (first.getTime() > now.getTime()) {
@@ -86,9 +96,9 @@ export async function planSpinReminders(entries: Entry[], settings: Settings): P
         identifier: `${SPIN_PREFIX}${iso}`,
         content: {
           title: 'Час крутити! 🔄',
-          body: 'За сьогодні ще немає запису. Зроби прокрут і занеси його в журнал.',
+          body: who ?? 'За сьогодні ще немає запису. Зроби прокрут і занеси його в журнал.',
           sound: true,
-          data: { url: '/journal' },
+          data,
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,
@@ -105,9 +115,11 @@ export async function planSpinReminders(entries: Entry[], settings: Settings): P
           identifier: `${SPIN_PREFIX}2-${iso}`,
           content: {
             title: '😤 Прокрут досі не записано',
-            body: 'Стрік під загрозою! Крутни або запиши день, поки він не згорів.',
+            body: who
+              ? `Стрік під загрозою! ${who}`
+              : 'Стрік під загрозою! Крутни або запиши день, поки він не згорів.',
             sound: true,
-            data: { url: '/journal' },
+            data,
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DATE,

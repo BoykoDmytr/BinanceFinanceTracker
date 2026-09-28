@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { AccountSwitcher } from '../../components/account-switcher';
 import { Screen } from '../../components/screen';
 import { Chip } from '../../components/ui';
 import { isActive, periodSummary, sortByDate } from '../../lib/calc';
@@ -54,7 +55,9 @@ export default function Journal() {
       onAction={() => router.push(`/entry/${today}`)}
       scroll={false}
     >
+      <AccountSwitcher />
       <FlatList
+        style={{ flex: 1 }}
         data={items}
         keyExtractor={(it) => it.date}
         showsVerticalScrollIndicator={false}

@@ -11,10 +11,26 @@ export interface Entry {
   comment: string;
 }
 
-export interface Settings {
+/** Стартові значення, від яких рахуються баланс і бали акаунта. */
+export interface AccountParams {
   startBalance: number;
   startPoints: number;
   defaultPoints: number;
+}
+
+export interface Account extends AccountParams {
+  id: number;
+  /** довільна назва: «Samsung A54», «телефон мами» тощо */
+  name: string;
+  /** враховувати акаунт у щоденному нагадуванні «прокрут» */
+  spinReminder: boolean;
+}
+
+/** Журнал усіх акаунтів: id акаунта → записи. */
+export type EntriesByAccount = Record<number, Entry[]>;
+
+/** Глобальні налаштування (спільні для всіх акаунтів). */
+export interface Settings {
   spinReminderEnabled: boolean;
   /** HH:MM */
   spinReminderTime: string;

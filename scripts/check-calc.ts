@@ -7,22 +7,28 @@
  * витрачених балів тут 885/645 проти 884/644 у таблиці — підсумковий
  * залишок балів (240) від цього не змінюється.
  */
-import { computeStats, daysToPoints, forecastPoints, periodSummary } from '../src/lib/calc';
+import {
+  accountsMissing,
+  computeStats,
+  daysToPoints,
+  forecastPoints,
+  periodSummary,
+} from '../src/lib/calc';
 import { SEED_ENTRIES, SEED_SETTINGS } from '../src/lib/seed';
-import type { Entry, Settings } from '../src/lib/types';
+import type { AccountParams, Entry } from '../src/lib/types';
 
-const settings: Settings = {
-  ...SEED_SETTINGS,
-  spinReminderEnabled: true,
-  spinReminderTime: '20:00',
-  spinReminderRepeat: true,
-};
+const settings: AccountParams = SEED_SETTINGS;
 
 const stats = computeStats(SEED_ENTRIES, settings, '2026-08-21');
 
 let failed = 0;
 function check(name: string, actual: number, expected: number, eps = 0.005) {
   const ok = Math.abs(actual - expected) <= eps;
+  if (!ok) failed++;
+  console.log(`${ok ? '✓' : '✗'} ${name}: ${actual}${ok ? '' : ` (очікувалось ${expected})`}`);
+}
+function checkEq(name: string, actual: string, expected: string) {
+  const ok = actual === expected;
   if (!ok) failed++;
   console.log(`${ok ? '✓' : '✗'} ${name}: ${actual}${ok ? '' : ` (очікувалось ${expected})`}`);
 }
@@ -84,6 +90,22 @@ check(
   sum15.pnl,
   win.reduce((a, e) => a + e.dropIncome + e.boosterIncome - e.fee - e.gasExpense, 0)
 );
+
+// мультиакаунт: журнали акаунтів незалежні, нагадування — про незаписані
+const second: Entry[] = [
+  { ...SEED_ENTRIES[0], date: '2026-08-20', fee: 3, dropIncome: 10 },
+  { ...SEED_ENTRIES[0], date: '2026-08-21', volume: 0, fee: 0, comment: 'лише коментар' },
+];
+const byAccount = { 1: SEED_ENTRIES, 2: second };
+const statsSecond = computeStats(second, { startBalance: 500, startPoints: 5, defaultPoints: 15 }, '2026-08-21');
+check('2-й акаунт: баланс від власного старту', statsSecond.balance, 500 - 3 + 10);
+check('2-й акаунт: не прокручено 21.08 (порожній день)', statsSecond.todayLogged ? 1 : 0, 0, 0);
+check('1-й акаунт не змінився', computeStats(byAccount[1], settings, '2026-08-21').balance, 1154.14);
+const accs = [{ id: 1 }, { id: 2 }, { id: 3 }];
+const missing = (date: string) => accountsMissing(accs, byAccount, date).map((a) => a.id).join(',');
+checkEq('Не записано 21.08 (порожній день не рахується)', missing('2026-08-21'), '2,3');
+checkEq('Не записано 20.08', missing('2026-08-20'), '3');
+checkEq('Не записано 22.08', missing('2026-08-22'), '1,2,3');
 
 if (failed > 0) {
   console.error(`\n${failed} перевірок не пройшло`);

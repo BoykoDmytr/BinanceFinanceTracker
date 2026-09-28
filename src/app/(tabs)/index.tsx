@@ -8,7 +8,7 @@ import { Screen } from '../../components/screen';
 import { StatCard } from '../../components/stat-card';
 import { Card, SectionTitle } from '../../components/ui';
 import { forecastPoints } from '../../lib/calc';
-import { useData } from '../../lib/data-context';
+import { useData, type AccountOverview } from '../../lib/data-context';
 import {
   dateHuman,
   dateHumanWD,
@@ -21,7 +21,8 @@ import {
 import { colors, spacing } from '../../lib/theme';
 
 export default function Dashboard() {
-  const { stats, settings, entries, today } = useData();
+  const { stats, activeAccount, overview, setActiveAccount, entries, today } = useData();
+  const multi = overview.length > 1;
 
   const balanceSeries = stats.series.map((p) => ({ date: p.date, value: p.balance }));
   const pointsSeries = stats.series.map((p) => ({ date: p.date, value: p.points }));
@@ -29,6 +30,18 @@ export default function Dashboard() {
 
   return (
     <Screen title="CryptoFinance Tracker" subtitle={dateHumanWD(today)}>
+      {multi ? (
+        <>
+          <SectionTitle>Усі акаунти</SectionTitle>
+          <AccountsOverview
+            items={overview}
+            activeId={activeAccount.id}
+            onSelect={setActiveAccount}
+          />
+          <SectionTitle>{activeAccount.name}</SectionTitle>
+        </>
+      ) : null}
+
       {/* Статус дня */}
       {stats.todayLogged ? (
         <View style={[styles.banner, { backgroundColor: colors.greenDim, borderColor: colors.green }]}>
@@ -110,11 +123,11 @@ export default function Dashboard() {
 
       <SectionTitle>Прогноз балів</SectionTitle>
       <Card>
-        <RowStat label="Через 7 днів" value={num(forecastPoints(stats, settings, 7))} accent />
-        <RowStat label="Через 14 днів" value={num(forecastPoints(stats, settings, 14))} accent />
-        <RowStat label="Через 30 днів" value={num(forecastPoints(stats, settings, 30))} accent />
+        <RowStat label="Через 7 днів" value={num(forecastPoints(stats, activeAccount, 7))} accent />
+        <RowStat label="Через 14 днів" value={num(forecastPoints(stats, activeAccount, 14))} accent />
+        <RowStat label="Через 30 днів" value={num(forecastPoints(stats, activeAccount, 30))} accent />
         <Text style={styles.hint}>
-          За темпу {num(settings.defaultPoints)} балів/день без витрат на дропи
+          За темпу {num(activeAccount.defaultPoints)} балів/день без витрат на дропи
         </Text>
       </Card>
 
@@ -145,6 +158,71 @@ export default function Dashboard() {
         emptyText={'Поки що жодного доходу з бустерів.\nВписуй його в журналі — графа «Дохід з бустерів».'}
       />
     </Screen>
+  );
+}
+
+/**
+ * Моніторинг усіх акаунтів одразу: чи прокручено сьогодні, баланс, бали, P&L.
+ * Тап по рядку робить акаунт активним — нижче на дашборді з'являються його деталі.
+ * Бали не підсумовуються: вони в кожного акаунта свої і між акаунтами не складаються.
+ */
+function AccountsOverview({
+  items,
+  activeId,
+  onSelect,
+}: {
+  items: AccountOverview[];
+  activeId: number;
+  onSelect: (id: number) => void;
+}) {
+  const logged = items.filter((o) => o.stats.todayLogged).length;
+  const totalBalance = items.reduce((a, o) => a + o.stats.balance, 0);
+  const totalPnl = items.reduce((a, o) => a + o.stats.pnl, 0);
+  return (
+    <Card>
+      {items.map(({ account, stats }, i) => {
+        const on = account.id === activeId;
+        return (
+          <TouchableOpacity
+            key={account.id}
+            style={[styles.accRow, i < items.length - 1 && styles.dropRowBorder]}
+            onPress={() => onSelect(account.id)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.accStatus, { color: stats.todayLogged ? colors.green : colors.red }]}>
+              {stats.todayLogged ? '✓' : '✗'}
+            </Text>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={[styles.accName, on && { color: colors.gold }]} numberOfLines={1}>
+                {account.name}
+              </Text>
+              <Text style={styles.accSub}>
+                {num(stats.points)} балів
+                {stats.streak > 0 ? ` · 🔥 ${stats.streak} ${daysWord(stats.streak)}` : ''}
+              </Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.accBalance}>{money(stats.balance)}</Text>
+              <Text style={[styles.accPnl, { color: stats.pnl >= 0 ? colors.green : colors.red }]}>
+                {moneySigned(stats.pnl)}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+      <View style={styles.accTotal}>
+        <Text style={styles.accTotalLabel}>
+          Прокручено сьогодні: {logged} з {items.length}
+        </Text>
+        <Text style={styles.accTotalLabel}>
+          Разом: <Text style={styles.accTotalValue}>{money(totalBalance)}</Text>
+          {'  '}
+          <Text style={{ color: totalPnl >= 0 ? colors.green : colors.red, fontWeight: '700' }}>
+            {moneySigned(totalPnl)}
+          </Text>
+        </Text>
+      </View>
+    </Card>
   );
 }
 
@@ -244,4 +322,19 @@ const styles = StyleSheet.create({
   dropComment: { color: colors.faint, fontSize: 12, marginTop: 2 },
   dropIncome: { color: colors.gold, fontSize: 15, fontWeight: '800' },
   dropPoints: { color: colors.sub, fontSize: 12, marginTop: 2 },
+  accRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
+  accStatus: { fontSize: 16, fontWeight: '800', width: 24 },
+  accName: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  accSub: { color: colors.sub, fontSize: 12, marginTop: 2 },
+  accBalance: { color: colors.text, fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  accPnl: { fontSize: 12, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] },
+  accTotal: {
+    marginTop: 4,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: 4,
+  },
+  accTotalLabel: { color: colors.sub, fontSize: 13 },
+  accTotalValue: { color: colors.text, fontWeight: '700' },
 });

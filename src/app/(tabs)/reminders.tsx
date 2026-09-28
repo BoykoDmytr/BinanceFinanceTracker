@@ -21,7 +21,8 @@ export function scheduleLabel(r: Reminder): string {
 }
 
 export default function Reminders() {
-  const { settings, updateSettings, reminders, editReminder, notifGranted, posts } = useData();
+  const { settings, updateSettings, reminders, editReminder, notifGranted, posts, accounts } =
+    useData();
 
   return (
     <Screen
@@ -43,7 +44,11 @@ export default function Reminders() {
       <Card>
         <ToggleRow
           label="Нагадувати про прокрут"
-          hint="Якщо за сьогодні немає запису в журналі"
+          hint={
+            accounts.length > 1
+              ? 'Якщо за сьогодні немає запису хоча б в одному акаунті (крім тих, де нагадування вимкнене в налаштуваннях акаунта)'
+              : 'Якщо за сьогодні немає запису в журналі'
+          }
           value={settings.spinReminderEnabled}
           onChange={(v) => updateSettings({ ...settings, spinReminderEnabled: v })}
         />

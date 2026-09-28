@@ -19,17 +19,38 @@ import {
   scheduleReminderNotifs,
   setupNotifications,
 } from './notifications';
-import type { Entry, Post, Reminder, Settings } from './types';
+import type { Account, EntriesByAccount, Entry, Post, Reminder, Settings } from './types';
+
+const NO_ENTRIES: Entry[] = [];
+
+export interface AccountOverview {
+  account: Account;
+  stats: Stats;
+}
 
 interface DataContextValue {
+  accounts: Account[];
+  /** акаунт, з яким працюють дашборд, журнал і експорт */
+  activeAccount: Account;
+  /** підсумки кожного акаунта — для моніторингу всіх одразу */
+  overview: AccountOverview[];
+  /** журнал активного акаунта */
   entries: Entry[];
+  /** журнали всіх акаунтів */
+  entriesByAccount: EntriesByAccount;
   settings: Settings;
   reminders: Reminder[];
   posts: Post[];
+  /** статистика активного акаунта */
   stats: Stats;
   notifGranted: boolean;
   /** Поточна дата YYYY-MM-DD; оновлюється, коли застосунок виходить на передній план */
   today: string;
+
+  setActiveAccount: (id: number) => void;
+  addAccount: (a: Omit<Account, 'id'>) => Account;
+  editAccount: (a: Account) => void;
+  removeAccount: (id: number) => void;
 
   saveEntry: (e: Entry) => void;
   removeEntry: (date: string) => void;
@@ -49,10 +70,14 @@ const DataContext = createContext<DataContextValue | null>(null);
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   // ініціалізація синхронна: SQLite відкривається і сідиться до першого рендера
-  const [entries, setEntries] = useState<Entry[]>(() => {
+  const [accounts, setAccounts] = useState<Account[]>(() => {
     store.initDb();
-    return store.loadEntries();
+    return store.loadAccounts();
   });
+  const [activeId, setActiveId] = useState(() => store.loadActiveAccountId(accounts));
+  const [entriesByAccount, setEntriesByAccount] = useState<EntriesByAccount>(() =>
+    store.loadEntriesByAccount()
+  );
   const [settings, setSettings] = useState<Settings>(() => store.loadSettings());
   const [reminders, setReminders] = useState<Reminder[]>(() => store.loadReminders());
   const [posts, setPosts] = useState<Post[]>(() => store.loadPosts());
@@ -69,7 +94,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, []);
 
-  const stats = useMemo(() => computeStats(entries, settings, today), [entries, settings, today]);
+  // initDb гарантує хоча б один акаунт
+  const activeAccount = accounts.find((a) => a.id === activeId) ?? accounts[0];
+  const entries = entriesByAccount[activeAccount.id] ?? NO_ENTRIES;
+
+  const overview = useMemo(
+    () =>
+      accounts.map((a) => ({
+        account: a,
+        stats: computeStats(entriesByAccount[a.id] ?? NO_ENTRIES, a, today),
+      })),
+    [accounts, entriesByAccount, today]
+  );
+  const stats = overview.find((o) => o.account.id === activeAccount.id)!.stats;
 
   useEffect(() => {
     (async () => {
@@ -79,26 +116,66 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // Перепланувати «прокрут»-нагадування при зміні журналу, налаштувань чи дати
+  // Перепланувати «прокрут»-нагадування при зміні журналів, акаунтів, налаштувань чи дати
   useEffect(() => {
     if (!notifGranted) return;
-    planSpinReminders(entries, settings).catch(() => {});
-  }, [entries, settings, notifGranted, today]);
+    planSpinReminders(accounts, entriesByAccount, settings).catch(() => {});
+  }, [accounts, entriesByAccount, settings, notifGranted, today]);
 
-  const saveEntry = useCallback((e: Entry) => {
-    store.upsertEntry(e);
-    setEntries(store.loadEntries());
+  const setActiveAccount = useCallback((id: number) => {
+    store.saveActiveAccountId(id);
+    setActiveId(id);
   }, []);
 
-  const removeEntry = useCallback((date: string) => {
-    store.deleteEntry(date);
-    setEntries(store.loadEntries());
+  const addAccount = useCallback((a: Omit<Account, 'id'>) => {
+    const created = store.insertAccount(a);
+    setAccounts(store.loadAccounts());
+    return created;
   }, []);
 
-  const importEntries = useCallback((list: Entry[]) => {
-    store.upsertEntries(list);
-    setEntries(store.loadEntries());
+  const editAccount = useCallback((a: Account) => {
+    store.updateAccount(a);
+    setAccounts(store.loadAccounts());
   }, []);
+
+  // записи завжди йдуть в активний акаунт — той, чий журнал зараз на екрані
+  const activeAccountId = activeAccount.id;
+
+  const removeAccount = useCallback(
+    (id: number) => {
+      const rest = store.loadAccounts().filter((a) => a.id !== id);
+      if (rest.length === 0) return; // останній акаунт не видаляємо
+      store.deleteAccount(id);
+      setAccounts(rest);
+      setEntriesByAccount(store.loadEntriesByAccount());
+      if (id === activeAccountId) setActiveAccount(rest[0].id);
+    },
+    [activeAccountId, setActiveAccount]
+  );
+
+  const saveEntry = useCallback(
+    (e: Entry) => {
+      store.upsertEntry(activeAccountId, e);
+      setEntriesByAccount(store.loadEntriesByAccount());
+    },
+    [activeAccountId]
+  );
+
+  const removeEntry = useCallback(
+    (date: string) => {
+      store.deleteEntry(activeAccountId, date);
+      setEntriesByAccount(store.loadEntriesByAccount());
+    },
+    [activeAccountId]
+  );
+
+  const importEntries = useCallback(
+    (list: Entry[]) => {
+      store.upsertEntries(activeAccountId, list);
+      setEntriesByAccount(store.loadEntriesByAccount());
+    },
+    [activeAccountId]
+  );
 
   const updateSettings = useCallback((s: Settings) => {
     store.saveSettings(s);
@@ -180,13 +257,21 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [notifGranted]);
 
   const value: DataContextValue = {
+    accounts,
+    activeAccount,
+    overview,
     entries,
+    entriesByAccount,
     settings,
     reminders,
     posts,
     stats,
     notifGranted,
     today,
+    setActiveAccount,
+    addAccount,
+    editAccount,
+    removeAccount,
     saveEntry,
     removeEntry,
     importEntries,

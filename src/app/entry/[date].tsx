@@ -29,7 +29,7 @@ function numToStr(n: number): string {
 export default function EntryForm() {
   const params = useLocalSearchParams<{ date: string }>();
   const date = typeof params.date === 'string' ? params.date : todayISO();
-  const { entries, settings, saveEntry, removeEntry } = useData();
+  const { entries, activeAccount, accounts, saveEntry, removeEntry } = useData();
 
   const existing = entries.find((e) => e.date === date) ?? null;
 
@@ -46,7 +46,7 @@ export default function EntryForm() {
   useEffect(() => {
     setVolume(existing ? numToStr(existing.volume) : '');
     setFee(existing ? numToStr(existing.fee) : '');
-    setPointsPlus(existing ? numToStr(existing.pointsPlus) : String(settings.defaultPoints));
+    setPointsPlus(existing ? numToStr(existing.pointsPlus) : String(activeAccount.defaultPoints));
     setPointsMinus(existing ? numToStr(existing.pointsMinus) : '');
     setDropIncome(existing ? numToStr(existing.dropIncome) : '');
     setBoosterIncome(existing ? numToStr(existing.boosterIncome) : '');
@@ -128,6 +128,12 @@ export default function EntryForm() {
             <Text style={styles.dateBtnText}>›</Text>
           </TouchableOpacity>
         </View>
+
+        {accounts.length > 1 ? (
+          <Text style={styles.account} numberOfLines={1}>
+            Акаунт: <Text style={styles.accountName}>{activeAccount.name}</Text>
+          </Text>
+        ) : null}
 
         <Field
           label="Обсяг торгівлі, $"
@@ -233,4 +239,12 @@ const styles = StyleSheet.create({
   dateBtnText: { color: colors.gold, fontSize: 22, fontWeight: '800', marginTop: -2 },
   dateText: { color: colors.text, fontSize: 17, fontWeight: '800' },
   twoCol: { flexDirection: 'row', gap: spacing.m },
+  account: {
+    color: colors.sub,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: -spacing.s,
+    marginBottom: spacing.l,
+  },
+  accountName: { color: colors.gold, fontWeight: '800' },
 });
