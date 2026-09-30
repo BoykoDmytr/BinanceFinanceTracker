@@ -6,6 +6,7 @@ on:
       - main
       - master
       - claude/mobile-scroll-tracker-wt0jni
+      - claude/festive-noether-zrbs2r
   workflow_dispatch:
 
 permissions:
