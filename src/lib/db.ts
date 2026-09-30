@@ -3,6 +3,8 @@ import * as SQLite from 'expo-sqlite';
 import { SEED_ENTRIES, SEED_SETTINGS } from './seed';
 import type {
   Account,
+  AdjustmentsByAccount,
+  BalanceAdjustment,
   EntriesByAccount,
   Entry,
   Post,
@@ -49,6 +51,14 @@ export function initDb(): void {
       spin_reminder INTEGER NOT NULL DEFAULT 1
     );
     ${entriesTableSql('entries')}
+    -- Корекції балансу живуть окремо від журналу: редагування чи видалення
+    -- запису дня їх не зачіпає. Одна корекція на акаунт і дату.
+    CREATE TABLE IF NOT EXISTS balance_adjustments (
+      account_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      amount REAL NOT NULL,
+      PRIMARY KEY (account_id, date)
+    );
     CREATE TABLE IF NOT EXISTS reminders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -228,10 +238,11 @@ export function updateAccount(a: Account): void {
   );
 }
 
-/** Видаляє акаунт разом з усім його журналом. */
+/** Видаляє акаунт разом з усім його журналом і корекціями. */
 export function deleteAccount(id: number): void {
   db.withTransactionSync(() => {
     db.runSync('DELETE FROM entries WHERE account_id = ?', [id]);
+    db.runSync('DELETE FROM balance_adjustments WHERE account_id = ?', [id]);
     db.runSync('DELETE FROM accounts WHERE id = ?', [id]);
   });
 }
@@ -301,14 +312,48 @@ export function upsertEntry(accountId: number, e: Entry): void {
   );
 }
 
-export function upsertEntries(accountId: number, entries: Entry[]): void {
+/** Імпорт: записи й корекції з тими самими датами перезаписуються, решта лишається. */
+export function importJournal(
+  accountId: number,
+  entries: Entry[],
+  adjustments: BalanceAdjustment[]
+): void {
   db.withTransactionSync(() => {
     for (const e of entries) upsertEntry(accountId, e);
+    for (const a of adjustments) setAdjustment(accountId, a.date, a.amount);
   });
 }
 
 export function deleteEntry(accountId: number, date: string): void {
   db.runSync('DELETE FROM entries WHERE account_id = ? AND date = ?', [accountId, date]);
+}
+
+// ---------- balance adjustments ----------
+
+/** Корекції балансу всіх акаунтів, згруповані за id акаунта (кожні — за датою). */
+export function loadAdjustmentsByAccount(): AdjustmentsByAccount {
+  const rows = db.getAllSync<{ account_id: number; date: string; amount: number }>(
+    'SELECT * FROM balance_adjustments ORDER BY account_id ASC, date ASC'
+  );
+  const out: AdjustmentsByAccount = {};
+  for (const r of rows) (out[r.account_id] ??= []).push({ date: r.date, amount: r.amount });
+  return out;
+}
+
+/** Встановлює корекцію за день; нульова сума прибирає її. */
+export function setAdjustment(accountId: number, date: string, amount: number): void {
+  if (amount === 0) {
+    db.runSync('DELETE FROM balance_adjustments WHERE account_id = ? AND date = ?', [
+      accountId,
+      date,
+    ]);
+    return;
+  }
+  db.runSync(
+    `INSERT INTO balance_adjustments (account_id, date, amount) VALUES (?, ?, ?)
+     ON CONFLICT(account_id, date) DO UPDATE SET amount = excluded.amount`,
+    [accountId, date, amount]
+  );
 }
 
 // ---------- reminders ----------

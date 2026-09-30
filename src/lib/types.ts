@@ -29,6 +29,25 @@ export interface Account extends AccountParams {
 /** Журнал усіх акаунтів: id акаунта → записи. */
 export type EntriesByAccount = Record<number, Entry[]>;
 
+/**
+ * Корекція балансу за день: депозит, вивід, зміна курсу — усе, чого немає в
+ * журналі. Одна на акаунт і дату; входить у баланс, але не в P&L операцій.
+ */
+export interface BalanceAdjustment {
+  /** YYYY-MM-DD */
+  date: string;
+  amount: number;
+}
+
+/** Корекції всіх акаунтів: id акаунта → корекції (за датою). */
+export type AdjustmentsByAccount = Record<number, BalanceAdjustment[]>;
+
+/** Журнал акаунта разом з корекціями балансу — те, що йде в CSV. */
+export interface Journal {
+  entries: Entry[];
+  adjustments: BalanceAdjustment[];
+}
+
 /** Глобальні налаштування (спільні для всіх акаунтів). */
 export interface Settings {
   spinReminderEnabled: boolean;

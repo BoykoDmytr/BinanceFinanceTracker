@@ -3,6 +3,11 @@ const MONTHS_UK = [
   'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня',
 ];
 
+const MONTHS_UK_NOM = [
+  'Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень',
+  'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень',
+];
+
 const WEEKDAYS_UK_SHORT = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
 export function money(v: number, digits = 2): string {
@@ -12,6 +17,11 @@ export function money(v: number, digits = 2): string {
   const [int, frac] = fixed.split('.');
   const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   return `${sign}$${grouped}${frac ? '.' + frac : ''}`;
+}
+
+/** Сума, яка після округлення до центів — нуль (сміття float-арифметики). */
+export function isZeroMoney(v: number): boolean {
+  return Math.abs(v) < 0.005;
 }
 
 export function moneySigned(v: number, digits = 2): string {
@@ -63,6 +73,12 @@ export function dateHuman(iso: string, withYear = false): string {
 export function dateHumanWD(iso: string): string {
   const d = parseDate(iso);
   return `${WEEKDAYS_UK_SHORT[d.getDay()]}, ${dateHuman(iso)}`;
+}
+
+/** '2026-09' -> 'Вересень 2026' */
+export function monthHuman(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return `${MONTHS_UK_NOM[m - 1]} ${y}`;
 }
 
 /** '2026-08-21' -> '21.08' */

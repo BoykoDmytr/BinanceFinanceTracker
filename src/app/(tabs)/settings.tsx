@@ -5,16 +5,17 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Screen } from '../../components/screen';
 import { Btn, Card, SectionTitle } from '../../components/ui';
 import { useData } from '../../lib/data-context';
-import { pickCsvEntries, shareCsv } from '../../lib/export';
+import { pickCsvJournal, shareCsv } from '../../lib/export';
 import { dateHuman, money, num } from '../../lib/format';
 import { colors, radius, spacing } from '../../lib/theme';
 
 export default function SettingsScreen() {
-  const { overview, activeAccount, setActiveAccount, entries, importEntries } = useData();
+  const { overview, activeAccount, setActiveAccount, entries, adjustments, importJournal } =
+    useData();
 
   const exportCsv = async () => {
     try {
-      await shareCsv(entries, activeAccount.name);
+      await shareCsv({ entries, adjustments }, activeAccount.name);
     } catch {
       Alert.alert('Не вдалося поділитись', 'Спробуй ще раз.');
     }
@@ -24,21 +25,24 @@ export default function SettingsScreen() {
     // цільовий акаунт фіксуємо до відкриття пікера — саме його названо в діалозі
     const target = activeAccount;
     try {
-      const parsed = await pickCsvEntries();
+      const parsed = await pickCsvJournal();
       if (!parsed) return;
-      const sorted = [...parsed].sort((a, b) => (a.date < b.date ? -1 : 1));
-      const first = sorted[0].date;
-      const last = sorted[sorted.length - 1].date;
+      const dates = [...parsed.entries, ...parsed.adjustments].map((x) => x.date).sort();
+      const first = dates[0];
+      const last = dates[dates.length - 1];
+      const found =
+        `${parsed.entries.length} записів` +
+        (parsed.adjustments.length > 0 ? ` і ${parsed.adjustments.length} корекцій балансу` : '');
       Alert.alert(
         `Імпорт у «${target.name}»`,
-        `Знайдено ${parsed.length} записів (${dateHuman(first, true)} — ${dateHuman(last, true)}).\n\nЇх буде додано в журнал акаунта «${target.name}». Записи з тими самими датами буде перезаписано, решта днів залишаться як є.`,
+        `Знайдено ${found} (${dateHuman(first, true)} — ${dateHuman(last, true)}).\n\nЇх буде додано в журнал акаунта «${target.name}». Записи й корекції з тими самими датами буде перезаписано, решта днів залишаться як є.`,
         [
           { text: 'Скасувати', style: 'cancel' },
           {
             text: 'Імпортувати',
             onPress: () => {
-              importEntries(target.id, parsed);
-              Alert.alert('Готово', `Імпортовано ${parsed.length} записів.`);
+              importJournal(target.id, parsed);
+              Alert.alert('Готово', `Імпортовано ${found}.`);
             },
           },
         ]
@@ -95,7 +99,8 @@ export default function SettingsScreen() {
         />
         <Text style={styles.hint}>
           Тап по акаунту робить його активним: дашборд, журнал і експорт працюють з ним. ✎ —
-          змінити назву, стартовий баланс і бали. Щоденне нагадування перевіряє всі акаунти.
+          змінити назву, стартовий чи поточний баланс і бали. Щоденне нагадування перевіряє всі
+          акаунти.
         </Text>
       </Card>
 

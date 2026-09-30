@@ -7,28 +7,34 @@ import { Screen } from '../../components/screen';
 import { Chip } from '../../components/ui';
 import { isActive, periodSummary, sortByDate } from '../../lib/calc';
 import { useData } from '../../lib/data-context';
-import { addDays, dateHumanWD, money, moneySigned, num } from '../../lib/format';
+import { addDays, dateHumanWD, isZeroMoney, money, moneySigned, num } from '../../lib/format';
 import { colors, radius, spacing } from '../../lib/theme';
 import type { Entry } from '../../lib/types';
 
 interface DayItem {
   date: string;
   entry: Entry | null;
+  /** корекція балансу за день (0 — немає) */
+  adjustment: number;
   balanceAfter: number | null;
   pointsAfter: number | null;
 }
 
 export default function Journal() {
-  const { entries, stats, today } = useData();
+  const { entries, adjustments, stats, today } = useData();
   const [showSummary, setShowSummary] = useState(false);
   const summary = useMemo(() => periodSummary(entries, 15, today), [entries, today]);
 
   const items = useMemo<DayItem[]>(() => {
-    if (entries.length === 0) return [{ date: today, entry: null, balanceAfter: null, pointsAfter: null }];
-    const sorted = sortByDate(entries);
-    const first = sorted[0].date;
-    const last = sorted[sorted.length - 1].date > today ? sorted[sorted.length - 1].date : today;
-    const byDate = new Map(sorted.map((e) => [e.date, e]));
+    // stats.series — по точці на кожну дату з записом або корекцією, за датою
+    if (stats.series.length === 0) {
+      return [{ date: today, entry: null, adjustment: 0, balanceAfter: null, pointsAfter: null }];
+    }
+    const first = stats.series[0].date;
+    const lastDate = stats.series[stats.series.length - 1].date;
+    const last = lastDate > today ? lastDate : today;
+    const byDate = new Map(sortByDate(entries).map((e) => [e.date, e]));
+    const adjByDate = new Map(adjustments.map((a) => [a.date, a.amount]));
     const seriesByDate = new Map(stats.series.map((p) => [p.date, p]));
 
     const out: DayItem[] = [];
@@ -39,13 +45,14 @@ export default function Journal() {
       out.push({
         date: cursor,
         entry: e,
+        adjustment: adjByDate.get(cursor) ?? 0,
         balanceAfter: s ? s.balance : null,
         pointsAfter: s ? s.points : null,
       });
       cursor = addDays(cursor, -1);
     }
     return out;
-  }, [entries, stats.series, today]);
+  }, [entries, adjustments, stats.series, today]);
 
   return (
     <Screen
@@ -125,6 +132,14 @@ function DayRow({ item, isToday }: { item: DayItem; isToday: boolean }) {
   const e = item.entry;
   const active = e ? isActive(e) : false;
   const hasDrop = !!e && e.dropIncome > 0;
+  const correction = isZeroMoney(item.adjustment) ? null : (
+    <Text style={styles.after}>
+      Корекція:{' '}
+      <Text style={[styles.afterValue, { color: item.adjustment >= 0 ? colors.green : colors.red }]}>
+        {moneySigned(item.adjustment)}
+      </Text>
+    </Text>
+  );
 
   return (
     <TouchableOpacity
@@ -178,6 +193,7 @@ function DayRow({ item, isToday }: { item: DayItem; isToday: boolean }) {
                 Бали: <Text style={styles.afterValue}>{num(item.pointsAfter)}</Text>
               </Text>
             ) : null}
+            {correction}
           </View>
           {e.comment ? (
             <Text style={styles.comment} numberOfLines={2}>
@@ -186,9 +202,21 @@ function DayRow({ item, isToday }: { item: DayItem; isToday: boolean }) {
           ) : null}
         </>
       ) : (
-        <Text style={styles.missedText}>
-          {isToday ? 'Запису ще немає — тисни, щоб додати' : 'Немає запису за цей день'}
-        </Text>
+        <>
+          <Text style={styles.missedText}>
+            {isToday ? 'Запису ще немає — тисни, щоб додати' : 'Немає запису за цей день'}
+          </Text>
+          {correction ? (
+            <View style={styles.afterRow}>
+              {correction}
+              {item.balanceAfter !== null ? (
+                <Text style={styles.after}>
+                  Баланс: <Text style={styles.afterValue}>{money(item.balanceAfter)}</Text>
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+        </>
       )}
     </TouchableOpacity>
   );
@@ -226,7 +254,9 @@ const styles = StyleSheet.create({
   numValue: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
   afterRow: {
     flexDirection: 'row',
-    gap: spacing.l,
+    flexWrap: 'wrap',
+    columnGap: spacing.l,
+    rowGap: 4,
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,

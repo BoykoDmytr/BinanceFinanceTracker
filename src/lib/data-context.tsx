@@ -19,9 +19,20 @@ import {
   scheduleReminderNotifs,
   setupNotifications,
 } from './notifications';
-import type { Account, EntriesByAccount, Entry, Post, Reminder, Settings } from './types';
+import type {
+  Account,
+  AdjustmentsByAccount,
+  BalanceAdjustment,
+  EntriesByAccount,
+  Entry,
+  Journal,
+  Post,
+  Reminder,
+  Settings,
+} from './types';
 
 const NO_ENTRIES: Entry[] = [];
+const NO_ADJUSTMENTS: BalanceAdjustment[] = [];
 
 export interface AccountOverview {
   account: Account;
@@ -38,6 +49,10 @@ interface DataContextValue {
   entries: Entry[];
   /** журнали всіх акаунтів */
   entriesByAccount: EntriesByAccount;
+  /** корекції балансу активного акаунта */
+  adjustments: BalanceAdjustment[];
+  /** корекції балансу всіх акаунтів */
+  adjustmentsByAccount: AdjustmentsByAccount;
   settings: Settings;
   reminders: Reminder[];
   posts: Post[];
@@ -56,7 +71,9 @@ interface DataContextValue {
   // активним уже після її відкриття (напр. через тап по сповіщенню)
   saveEntry: (accountId: number, e: Entry) => void;
   removeEntry: (accountId: number, date: string) => void;
-  importEntries: (accountId: number, list: Entry[]) => void;
+  importJournal: (accountId: number, journal: Journal) => void;
+  /** корекція балансу за день; 0 — прибрати */
+  setBalanceAdjustment: (accountId: number, date: string, amount: number) => void;
   updateSettings: (s: Settings) => void;
 
   addReminder: (r: Omit<Reminder, 'id' | 'notifIds'>) => Promise<void>;
@@ -80,6 +97,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [entriesByAccount, setEntriesByAccount] = useState<EntriesByAccount>(() =>
     store.loadEntriesByAccount()
   );
+  const [adjustmentsByAccount, setAdjustmentsByAccount] = useState<AdjustmentsByAccount>(() =>
+    store.loadAdjustmentsByAccount()
+  );
   const [settings, setSettings] = useState<Settings>(() => store.loadSettings());
   const [reminders, setReminders] = useState<Reminder[]>(() => store.loadReminders());
   const [posts, setPosts] = useState<Post[]>(() => store.loadPosts());
@@ -99,14 +119,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // initDb гарантує хоча б один акаунт
   const activeAccount = accounts.find((a) => a.id === activeId) ?? accounts[0];
   const entries = entriesByAccount[activeAccount.id] ?? NO_ENTRIES;
+  const adjustments = adjustmentsByAccount[activeAccount.id] ?? NO_ADJUSTMENTS;
 
   const overview = useMemo(
     () =>
       accounts.map((a) => ({
         account: a,
-        stats: computeStats(entriesByAccount[a.id] ?? NO_ENTRIES, a, today),
+        stats: computeStats(
+          entriesByAccount[a.id] ?? NO_ENTRIES,
+          a,
+          today,
+          adjustmentsByAccount[a.id] ?? NO_ADJUSTMENTS
+        ),
       })),
-    [accounts, entriesByAccount, today]
+    [accounts, entriesByAccount, adjustmentsByAccount, today]
   );
   const stats = overview.find((o) => o.account.id === activeAccount.id)!.stats;
 
@@ -149,6 +175,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       store.deleteAccount(id);
       setAccounts(rest);
       setEntriesByAccount(store.loadEntriesByAccount());
+      setAdjustmentsByAccount(store.loadAdjustmentsByAccount());
       if (id === activeAccountId) setActiveAccount(rest[0].id);
     },
     [activeAccountId, setActiveAccount]
@@ -164,9 +191,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setEntriesByAccount(store.loadEntriesByAccount());
   }, []);
 
-  const importEntries = useCallback((accountId: number, list: Entry[]) => {
-    store.upsertEntries(accountId, list);
+  const importJournal = useCallback((accountId: number, journal: Journal) => {
+    store.importJournal(accountId, journal.entries, journal.adjustments);
     setEntriesByAccount(store.loadEntriesByAccount());
+    setAdjustmentsByAccount(store.loadAdjustmentsByAccount());
+  }, []);
+
+  const setBalanceAdjustment = useCallback((accountId: number, date: string, amount: number) => {
+    store.setAdjustment(accountId, date, amount);
+    setAdjustmentsByAccount(store.loadAdjustmentsByAccount());
   }, []);
 
   const updateSettings = useCallback((s: Settings) => {
@@ -254,6 +287,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     overview,
     entries,
     entriesByAccount,
+    adjustments,
+    adjustmentsByAccount,
     settings,
     reminders,
     posts,
@@ -266,7 +301,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     removeAccount,
     saveEntry,
     removeEntry,
-    importEntries,
+    importJournal,
+    setBalanceAdjustment,
     updateSettings,
     addReminder,
     editReminder,

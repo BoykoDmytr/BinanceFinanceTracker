@@ -1,18 +1,20 @@
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { BarChart, LineChart } from '../../components/charts';
 import { Heatmap } from '../../components/heatmap';
+import { MonthlyResults } from '../../components/monthly-results';
 import { Screen } from '../../components/screen';
 import { StatCard } from '../../components/stat-card';
 import { Card, SectionTitle } from '../../components/ui';
-import { forecastPoints } from '../../lib/calc';
+import { forecastPoints, monthlyResults } from '../../lib/calc';
 import { useData, type AccountOverview } from '../../lib/data-context';
 import {
   dateHuman,
   dateHumanWD,
   daysWord,
+  isZeroMoney,
   money,
   moneySigned,
   num,
@@ -21,8 +23,13 @@ import {
 import { colors, spacing } from '../../lib/theme';
 
 export default function Dashboard() {
-  const { stats, activeAccount, overview, setActiveAccount, entries, today } = useData();
+  const { stats, activeAccount, overview, setActiveAccount, entries, adjustments, today } =
+    useData();
   const multi = overview.length > 1;
+  const months = useMemo(
+    () => monthlyResults(entries, activeAccount, today, adjustments),
+    [entries, activeAccount, today, adjustments]
+  );
 
   const balanceSeries = stats.series.map((p) => ({ date: p.date, value: p.balance }));
   const pointsSeries = stats.series.map((p) => ({ date: p.date, value: p.points }));
@@ -71,7 +78,16 @@ export default function Dashboard() {
 
       {/* Головні цифри */}
       <View style={styles.grid}>
-        <StatCard label="Баланс" value={money(stats.balance)} tone="blue" />
+        <StatCard
+          label="Баланс"
+          value={money(stats.balance)}
+          tone="blue"
+          sub={
+            isZeroMoney(stats.totalAdjustments)
+              ? undefined
+              : `з корекціями ${moneySigned(stats.totalAdjustments)}`
+          }
+        />
         <StatCard label="Бали" value={num(stats.points)} tone="gold" />
         <StatCard
           label="P&L операції"
@@ -91,6 +107,9 @@ export default function Dashboard() {
       <Card>
         <Heatmap entries={entries} />
       </Card>
+
+      <SectionTitle>Результати по місяцях</SectionTitle>
+      <MonthlyResults key={activeAccount.id} months={months} today={today} />
 
       <SectionTitle>Графіки</SectionTitle>
       <Card>
@@ -138,6 +157,9 @@ export default function Dashboard() {
         <RowStat label="Витрати на дропи (газ/фі)" value={money(stats.totalGas)} negative />
         <RowStat label="Дохід з дропів" value={money(stats.totalDrop)} positive />
         <RowStat label="Дохід з бустерів" value={money(stats.totalBooster)} positive />
+        {!isZeroMoney(stats.totalAdjustments) ? (
+          <RowStat label="Корекції балансу (не в P&L)" value={moneySigned(stats.totalAdjustments)} />
+        ) : null}
         <RowStat label="Активних днів" value={String(stats.activeDays)} />
         <RowStat label="Балів зароблено" value={num(stats.pointsEarned)} />
         <RowStat label="Балів витрачено" value={num(stats.pointsSpent)} />
